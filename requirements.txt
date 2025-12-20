@@ -1,0 +1,6 @@
+# این محتوا را در requirements.txt قرار دهید:
+fastapi==0.100.0
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+requests==2.31.0
+pydantic==1.10.12
