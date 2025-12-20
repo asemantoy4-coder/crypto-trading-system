@@ -1,0 +1,17 @@
+# Core
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+
+# Data Processing
+pandas==2.1.4
+numpy==1.24.3
+requests==2.31.0
+
+# Validation
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Optional (if needed)
+# beautifulsoup4==4.12.2  # For web scraping
+# scikit-learn==1.3.2    # For ML (heavy for free tier)
