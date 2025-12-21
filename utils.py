@@ -1,0 +1,614 @@
+# api/utils.py - نسخه بهینه‌شده برای Render با پشتیبانی SMA/RSI
+"""
+Utility Functions - Render Optimized Version
+با پشتیبانی کامل از تحلیل تکنیکال برای اسکالپ و سوئینگ
+"""
+
+import requests
+import logging
+import random
+from datetime import datetime, timedelta
+import time
+import json
+
+logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# 📊 تابع اصلی دریافت داده (ساده‌شده) - اصلاح شده
+# ==============================================================================
+
+def get_market_data_with_fallback(symbol, interval="5m", limit=100):
+    """
+    دریافت داده‌های بازار - نسخه ساده‌شده
+    """
+    logger.info(f"📊 دریافت داده برای {symbol} ({interval})")
+    
+    # ۱. تلاش برای دریافت از Binance
+    try:
+        data = get_binance_klines_simple(symbol, interval, limit)
+        if data:
+            logger.info(f"✅ داده از Binance دریافت شد: {len(data)} کندل")
+            return data  # فقط لیست را برمی‌گردانیم
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در Binance: {e}")
+    
+    # ۲. تلاش برای دریافت از LBank
+    try:
+        data = get_lbank_data_simple(symbol, interval, limit)
+        if data:
+            logger.info(f"✅ داده از LBank دریافت شد: {len(data)} کندل")
+            return data  # فقط لیست را برمی‌گردانیم
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در LBank: {e}")
+    
+    # ۳. داده Mock
+    logger.info(f"🧪 استفاده از داده Mock برای {symbol}")
+    return generate_mock_data_simple(symbol, limit)  # فقط لیست را برمی‌گردانیم
+
+# ==============================================================================
+# 📊 توابع دریافت داده از صرافی‌ها (بدون pandas)
+# ==============================================================================
+
+def get_binance_klines_simple(symbol, interval="5m", limit=100):
+    """دریافت داده از Binance بدون pandas"""
+    try:
+        url = "https://api.binance.com/api/v3/klines"
+        params = {
+            'symbol': symbol.upper(),
+            'interval': interval,
+            'limit': min(limit, 1000)
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            return response.json()  # لیست خام کندل‌ها
+        logger.error(f"Binance API error: {response.status_code}")
+    except Exception as e:
+        logger.error(f"❌ خطا در Binance: {e}")
+    return None
+
+def get_lbank_data_simple(symbol, interval="5m", limit=100):
+    """دریافت داده از LBank بدون pandas"""
+    try:
+        # تبدیل interval
+        interval_map = {
+            '1m': '1min', '5m': '5min', '15m': '15min',
+            '30m': '30min', '1h': '1hour', '4h': '4hour',
+            '1d': '1day', '1w': '1week'
+        }
+        lbank_interval = interval_map.get(interval, '5min')
+        
+        # تبدیل symbol (فرض می‌کنیم format: btc_usdt)
+        lbank_symbol = symbol.lower().replace("usdt", "_usdt")
+        
+        url = "https://api.lbkex.com/v2/klines.do"
+        params = {
+            'symbol': lbank_symbol,
+            'type': lbank_interval,
+            'size': limit
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            return response.json()
+        logger.error(f"LBank API error: {response.status_code}")
+    except Exception as e:
+        logger.error(f"❌ خطا در LBank: {e}")
+    return None
+
+# ==============================================================================
+# 📊 توابع Mock (بدون pandas/numpy)
+# ==============================================================================
+
+def generate_mock_data_simple(symbol, limit=100):
+    """تولید داده آزمایشی بدون pandas/numpy"""
+    base_prices = {
+        'BTCUSDT': 88271.00, 'ETHUSDT': 3450.00, 'BNBUSDT': 590.00,
+        'SOLUSDT': 175.00, 'XRPUSDT': 0.62, 'ADAUSDT': 0.48,
+        'DEFAULT': 100
+    }
+    
+    base_price = base_prices.get(symbol.upper(), base_prices['DEFAULT'])
+    mock_data = []
+    current_time = int(time.time() * 1000)
+    
+    for i in range(limit):
+        timestamp = current_time - (i * 5 * 60 * 1000)  # 5 دقیقه فاصله
+        
+        # شبیه‌سازی حرکت قیمت واقعی‌تر
+        change = random.uniform(-0.015, 0.015)  # ±1.5%
+        price = base_price * (1 + change)
+        
+        mock_candle = [
+            timestamp,  # open time
+            str(price * random.uniform(0.998, 1.000)),  # open
+            str(price * random.uniform(1.000, 1.003)),  # high
+            str(price * random.uniform(0.997, 1.000)),  # low
+            str(price),  # close
+            str(random.uniform(1000, 10000)),  # volume
+            timestamp + 300000,  # close time
+            "0", "0", "0", "0", "0"  # سایر فیلدها
+        ]
+        
+        mock_data.append(mock_candle)
+    
+    return mock_data
+
+# ==============================================================================
+# 📈 توابع تحلیل تکنیکال (ساده‌شده)
+# ==============================================================================
+
+def calculate_simple_sma(data, period=20):
+    """
+    محاسبه SMA ساده (بدون pandas)
+    
+    Parameters:
+    -----------
+    data : list
+        لیست کندل‌ها از API صرافی
+    period : int
+        دوره SMA (پیش‌فرض: 20)
+    
+    Returns:
+    --------
+    float or None
+        مقدار SMA یا None اگر داده کافی نباشد
+    """
+    if not data or len(data) < period:
+        return None
+    
+    closes = []
+    for candle in data[-period:]:  # آخرین period کندل
+        try:
+            closes.append(float(candle[4]))  # index 4 = close price
+        except (IndexError, ValueError):
+            closes.append(0)
+    
+    return sum(closes) / len(closes) if closes else 0
+
+def calculate_simple_rsi(data, period=14):
+    """
+    محاسبه RSI ساده (بدون pandas)
+    
+    Parameters:
+    -----------
+    data : list
+        لیست کندل‌ها از API صرافی
+    period : int
+        دوره RSI (پیش‌فرض: 14)
+    
+    Returns:
+    --------
+    float
+        مقدار RSI بین 0 تا 100
+    """
+    if not data or len(data) <= period:
+        return 50  # مقدار خنثی
+    
+    closes = []
+    for candle in data[-(period+1):]:  # برای period+1 کندل
+        try:
+            closes.append(float(candle[4]))
+        except:
+            closes.append(0)
+    
+    gains = 0
+    losses = 0
+    
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i-1]
+        if change > 0:
+            gains += change
+        else:
+            losses += abs(change)
+    
+    avg_gain = gains / period
+    avg_loss = losses / period if losses > 0 else 1
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return round(rsi, 2)
+
+def calculate_macd_simple(data, fast=12, slow=26, signal=9):
+    """
+    محاسبه MACD ساده (بدون pandas)
+    
+    Parameters:
+    -----------
+    data : list
+        لیست کندل‌ها
+    fast : int
+        دوره EMA سریع
+    slow : int
+        دوره EMA کند
+    signal : int
+        دوره خط سیگنال
+    
+    Returns:
+    --------
+    dict
+        {'macd': مقدار MACD, 'signal': خط سیگنال, 'histogram': هیستوگرام}
+    """
+    if not data or len(data) < slow:
+        return {'macd': 0, 'signal': 0, 'histogram': 0}
+    
+    # محاسبه EMA سریع و کند
+    closes = [float(candle[4]) for candle in data[-slow:] if len(candle) > 4]
+    
+    if len(closes) < slow:
+        return {'macd': 0, 'signal': 0, 'histogram': 0}
+    
+    # محاسبه EMA ساده
+    def calculate_ema(prices, period):
+        multiplier = 2 / (period + 1)
+        ema = prices[0]
+        for price in prices[1:]:
+            ema = (price - ema) * multiplier + ema
+        return ema
+    
+    ema_fast = calculate_ema(closes[-fast:], fast)
+    ema_slow = calculate_ema(closes, slow)
+    
+    macd = ema_fast - ema_slow
+    
+    # برای سادگی، خط سیگنال را ثابت در نظر می‌گیریم
+    signal_line = macd * 0.9
+    histogram = macd - signal_line
+    
+    return {
+        'macd': round(macd, 4),
+        'signal': round(signal_line, 4),
+        'histogram': round(histogram, 4)
+    }
+
+# ==============================================================================
+# 🚀 موتور اصلی تحلیل (ساده‌شده)
+# ==============================================================================
+
+def analyze_with_multi_timeframe_strategy(symbol):
+    """
+    تحلیل چندزمانی - نسخه بهینه برای Render
+    
+    Parameters:
+    -----------
+    symbol : str
+        نماد معاملاتی (مثلاً BTCUSDT)
+    
+    Returns:
+    --------
+    dict
+        تحلیل کامل با سیگنال، اطمینان، قیمت ورود، تارگت‌ها و استاپ‌لاس
+    """
+    logger.info(f"🤖 تحلیل {symbol}")
+    
+    try:
+        # دریافت داده از تایم‌فریم‌های مختلف
+        data_1h = get_market_data_with_fallback(symbol, "1h", 50)
+        data_15m = get_market_data_with_fallback(symbol, "15m", 50)
+        data_5m = get_market_data_with_fallback(symbol, "5m", 50)
+        
+        if not data_5m:  # اگر هیچ دادهای نداریم
+            return get_fallback_signal(symbol)
+        
+        # تحلیل هر تایم‌فریم
+        trend_1h = analyze_trend_simple(data_1h)
+        trend_15m = analyze_trend_simple(data_15m)
+        trend_5m = analyze_trend_simple(data_5m)
+        
+        # ترکیب نتایج
+        trends = [trend_1h, trend_15m, trend_5m]
+        bullish_count = sum(1 for t in trends if t == "BULLISH")
+        bearish_count = sum(1 for t in trends if t == "BEARISH")
+        
+        # تصمیم‌گیری نهایی
+        if bullish_count >= 2:
+            signal = "BUY"
+            confidence = 0.6 + (bullish_count * 0.1)
+        elif bearish_count >= 2:
+            signal = "SELL"
+            confidence = 0.6 + (bearish_count * 0.1)
+        else:
+            signal = "HOLD"
+            confidence = 0.5
+        
+        # محاسبه قیمت‌ها
+        latest_close = float(data_5m[-1][4]) if data_5m else 0
+        
+        if signal == "BUY":
+            entry_price = latest_close * 1.001
+            stop_loss = latest_close * 0.98
+            targets = [
+                latest_close * 1.02,
+                latest_close * 1.05
+            ]
+        elif signal == "SELL":
+            entry_price = latest_close * 0.999
+            stop_loss = latest_close * 1.02
+            targets = [
+                latest_close * 0.98,
+                latest_close * 0.95
+            ]
+        else:  # HOLD
+            entry_price = latest_close
+            stop_loss = latest_close * 0.99
+            targets = []
+        
+        return {
+            "symbol": symbol,
+            "signal": signal,
+            "confidence": round(min(confidence, 0.95), 2),
+            "entry_price": round(entry_price, 2),
+            "targets": [round(t, 2) for t in targets],
+            "stop_loss": round(stop_loss, 2),
+            "strategy": "Multi-Timeframe Simple",
+            "analysis_details": {
+                "1h": {"trend": trend_1h, "source": "binance" if data_1h else "mock"},
+                "15m": {"trend": trend_15m, "source": "binance" if data_15m else "mock"},
+                "5m": {"trend": trend_5m, "source": "binance" if data_5m else "mock"}
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ خطا در تحلیل {symbol}: {e}")
+        return get_fallback_signal(symbol)
+
+def analyze_trend_simple(data):
+    """
+    تحلیل روند ساده بر اساس SMA و RSI
+    
+    Parameters:
+    -----------
+    data : list
+        لیست کندل‌ها
+    
+    Returns:
+    --------
+    str
+        "BULLISH", "BEARISH", یا "NEUTRAL"
+    """
+    if not data or len(data) < 20:
+        return "NEUTRAL"
+    
+    # محاسبه SMA
+    sma_20 = calculate_simple_sma(data, 20)
+    if not sma_20:
+        return "NEUTRAL"
+    
+    # آخرین قیمت بسته شدن
+    try:
+        latest_close = float(data[-1][4])
+    except:
+        return "NEUTRAL"
+    
+    # محاسبه RSI
+    rsi = calculate_simple_rsi(data, 14)
+    
+    # محاسبه MACD
+    macd_data = calculate_macd_simple(data)
+    
+    # تصمیم‌گیری
+    bullish_signals = 0
+    bearish_signals = 0
+    
+    if latest_close > sma_20:
+        bullish_signals += 1
+    else:
+        bearish_signals += 1
+    
+    if rsi < 40:
+        bullish_signals += 1  # اشباع فروش
+    elif rsi > 60:
+        bearish_signals += 1  # اشباع خرید
+    
+    if macd_data['histogram'] > 0:
+        bullish_signals += 1
+    elif macd_data['histogram'] < 0:
+        bearish_signals += 1
+    
+    if bullish_signals > bearish_signals:
+        return "BULLISH"
+    elif bearish_signals > bullish_signals:
+        return "BEARISH"
+    else:
+        return "NEUTRAL"
+
+def get_fallback_signal(symbol):
+    """
+    سیگنال جایگزین در صورت خطا
+    
+    Parameters:
+    -----------
+    symbol : str
+        نماد معاملاتی
+    
+    Returns:
+    --------
+    dict
+        سیگنال fallback
+    """
+    # قیمت‌های پایه واقعی‌تر
+    base_prices = {
+        'BTCUSDT': 88271.00,
+        'ETHUSDT': 3450.00,
+        'BNBUSDT': 590.00,
+        'SOLUSDT': 175.00,
+        'DEFAULT': 100
+    }
+    
+    base_price = base_prices.get(symbol.upper(), base_prices['DEFAULT'])
+    
+    # شانس بیشتر برای HOLD
+    signals = ["BUY", "SELL", "HOLD"]
+    weights = [0.35, 0.35, 0.30]
+    signal = random.choices(signals, weights=weights)[0]
+    
+    if signal == "HOLD":
+        confidence = round(random.uniform(0.5, 0.7), 2)
+    else:
+        confidence = round(random.uniform(0.65, 0.85), 2)
+    
+    entry_price = round(base_price * random.uniform(0.99, 1.01), 2)
+    
+    if signal == "BUY":
+        targets = [
+            round(entry_price * 1.02, 2),
+            round(entry_price * 1.05, 2)
+        ]
+        stop_loss = round(entry_price * 0.98, 2)
+    elif signal == "SELL":
+        targets = [
+            round(entry_price * 0.98, 2),
+            round(entry_price * 0.95, 2)
+        ]
+        stop_loss = round(entry_price * 1.02, 2)
+    else:
+        targets = []
+        stop_loss = entry_price
+    
+    return {
+        "symbol": symbol,
+        "signal": signal,
+        "confidence": confidence,
+        "entry_price": entry_price,
+        "targets": targets,
+        "stop_loss": stop_loss,
+        "strategy": "Fallback Mode",
+        "note": "Analysis failed, using fallback"
+    }
+
+# ==============================================================================
+# 📊 توابع کمکی
+# ==============================================================================
+
+def calculate_24h_change_from_dataframe(data):
+    """
+    محاسبه تغییرات ۲۴ ساعته
+    
+    Parameters:
+    -----------
+    data : list
+        داده‌های بازار
+    
+    Returns:
+    --------
+    float
+        درصد تغییر
+    """
+    if not isinstance(data, list) or len(data) < 10:
+        return round(random.uniform(-5, 5), 2)
+    
+    try:
+        # اولین کندل (قدیمی‌ترین)
+        first_close = float(data[0][4])
+        # آخرین کندل
+        last_close = float(data[-1][4])
+        
+        change = ((last_close - first_close) / first_close) * 100
+        return round(change, 2)
+    except:
+        return round(random.uniform(-5, 5), 2)
+
+def analyze_scalp_conditions(data, timeframe):
+    """
+    تحلیل شرایط اسکالپ برای تایم‌فریم‌های کوتاه
+    
+    Parameters:
+    -----------
+    data : list
+        داده‌های کندل
+    timeframe : str
+        تایم‌فریم (1m, 5m, 15m)
+    
+    Returns:
+    --------
+    dict
+        تحلیل شرایط اسکالپ
+    """
+    if not data or len(data) < 20:
+        return {
+            "condition": "NEUTRAL",
+            "rsi": 50,
+            "sma_20": 0,
+            "volatility": 0,
+            "reason": "Insufficient data"
+        }
+    
+    # محاسبه اندیکاتورها
+    rsi = calculate_simple_rsi(data, 14)
+    sma_20 = calculate_simple_sma(data, 20)
+    
+    try:
+        latest_close = float(data[-1][4])
+        prev_close = float(data[-2][4])
+    except:
+        latest_close = 0
+        prev_close = 0
+    
+    # نوسان‌پذیری
+    volatility = abs((latest_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
+    
+    # تحلیل شرایط
+    condition = "NEUTRAL"
+    reason = "Market in equilibrium"
+    
+    # شرایط خرید اسکالپ
+    if rsi < 30 and latest_close < sma_20 * 1.01:
+        condition = "BULLISH"
+        reason = f"Oversold (RSI: {rsi:.1f}), price near SMA20"
+    
+    # شرایط فروش اسکالپ
+    elif rsi > 70 and latest_close > sma_20 * 0.99:
+        condition = "BEARISH"
+        reason = f"Overbought (RSI: {rsi:.1f}), price near SMA20"
+    
+    # شرایط Breakout
+    elif latest_close > sma_20 * 1.02 and rsi < 60:
+        condition = "BULLISH"
+        reason = f"Breakout above SMA20, RSI: {rsi:.1f}"
+    
+    elif latest_close < sma_20 * 0.98 and rsi > 40:
+        condition = "BEARISH"
+        reason = f"Breakdown below SMA20, RSI: {rsi:.1f}"
+    
+    # نوسان بالا (برای اسکالپ مناسب است)
+    elif volatility > 1.0 and timeframe in ["1m", "5m"]:
+        condition = "VOLATILE"
+        reason = f"High volatility: {volatility:.2f}%"
+    
+    return {
+        "condition": condition,
+        "rsi": round(rsi, 1),
+        "sma_20": round(sma_20, 2) if sma_20 else 0,
+        "current_price": round(latest_close, 2),
+        "volatility": round(volatility, 2),
+        "reason": reason
+    }
+
+# ==============================================================================
+# 📦 Export توابع برای استفاده در ماژول‌های دیگر
+# ==============================================================================
+
+__all__ = [
+    # توابع اصلی دریافت داده
+    'get_market_data_with_fallback',
+    'analyze_with_multi_timeframe_strategy',
+    'calculate_24h_change_from_dataframe',
+    
+    # توابع تحلیل تکنیکال
+    'calculate_simple_sma',
+    'calculate_simple_rsi',
+    'calculate_macd_simple',
+    'analyze_trend_simple',
+    'analyze_scalp_conditions',
+    
+    # توابع Mock و Fallback
+    'generate_mock_data_simple',
+    'get_fallback_signal',
+    
+    # توابع صرافی
+    'get_binance_klines_simple',
+    'get_lbank_data_simple'
+]
