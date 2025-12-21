@@ -1,0 +1,16 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+
+# Pydantic
+pydantic==2.5.0
+pydantic-core==2.14.1
+
+# Data Analysis
+requests==2.31.0
+
+# Optional
+python-multipart==0.0.6
+httpx==0.25.1
+python-dotenv==1.0.0
