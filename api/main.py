@@ -1,0 +1,312 @@
+# بخش‌های بهبودیافته برای main.py
+
+from pydantic import BaseModel, validator
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ==============================================================================
+# Configuration با Environment Variables
+# ==============================================================================
+class Config:
+    API_VERSION = os.getenv("API_VERSION", "7.2.1")
+    PORT = int(os.getenv("PORT", 8000))
+    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    RATE_LIMIT = os.getenv("RATE_LIMIT", "10/minute")
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# ==============================================================================
+# Pydantic Models با Validation
+# ==============================================================================
+class AnalysisRequest(BaseModel):
+    symbol: str
+    timeframe: str = "5m"
+    
+    @validator('symbol')
+    def validate_symbol(cls, v):
+        if not v or len(v) < 3:
+            raise ValueError('Symbol must be at least 3 characters')
+        # فقط حروف و اعداد مجاز
+        if not v.replace('USDT', '').replace('BUSD', '').isalnum():
+            raise ValueError('Invalid symbol format')
+        return v.upper()
+    
+    @validator('timeframe')
+    def validate_timeframe(cls, v):
+        allowed = ['1m', '5m', '15m', '1h', '4h', '1d']
+        if v not in allowed:
+            raise ValueError(f'Timeframe must be one of {allowed}')
+        return v
+
+class ScalpRequest(BaseModel):
+    symbol: str
+    timeframe: str = "5m"
+    
+    @validator('symbol')
+    def validate_symbol(cls, v):
+        if not v or len(v) < 3:
+            raise ValueError('Symbol must be at least 3 characters')
+        return v.upper()
+    
+    @validator('timeframe')
+    def validate_timeframe(cls, v):
+        allowed = ['1m', '5m', '15m']
+        if v not in allowed:
+            raise ValueError(f'Scalp timeframe must be one of {allowed}')
+        return v
+
+# ==============================================================================
+# FastAPI با تنظیمات امنیتی
+# ==============================================================================
+app = FastAPI(
+    title=f"Crypto AI Trading System v{Config.API_VERSION}",
+    description="Multi-source signal API with Scalp Support",
+    version=Config.API_VERSION,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
+)
+
+# CORS با محدودیت
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Config.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# ==============================================================================
+# توابع کمکی بهبودیافته
+# ==============================================================================
+def mock_calculate_simple_rsi(data, period=14):
+    """محاسبه RSI ساده با رفع مشکل division by zero"""
+    if not data or len(data) <= period:
+        return 50
+    
+    closes = []
+    for candle in data[-(period+1):]:
+        try:
+            closes.append(float(candle[4]))
+        except:
+            closes.append(0)
+    
+    gains = 0
+    losses = 0
+    
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i-1]
+        if change > 0:
+            gains += change
+        else:
+            losses += abs(change)
+    
+    avg_gain = gains / period
+    # رفع مشکل division by zero
+    avg_loss = losses / period if losses > 0 else 0.0001
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return round(rsi, 2)
+
+def calculate_targets_and_stop(signal: str, entry_price: float, trade_type: str = "STANDARD"):
+    """
+    محاسبه صحیح تارگت‌ها و استاپ لاس
+    
+    Args:
+        signal: "BUY" or "SELL"
+        entry_price: قیمت ورود
+        trade_type: "STANDARD" or "SCALP"
+    
+    Returns:
+        dict با targets و stop_loss
+    """
+    if entry_price <= 0:
+        raise ValueError("Entry price must be positive")
+    
+    if trade_type == "SCALP":
+        # اسکالپ: تارگت‌های کوچک‌تر
+        if signal == "BUY":
+            return {
+                "targets": [
+                    round(entry_price * 1.01, 2),  # +1%
+                    round(entry_price * 1.02, 2),  # +2%
+                    round(entry_price * 1.03, 2)   # +3%
+                ],
+                "stop_loss": round(entry_price * 0.99, 2)  # -1%
+            }
+        elif signal == "SELL":
+            return {
+                "targets": [
+                    round(entry_price * 0.99, 2),  # -1%
+                    round(entry_price * 0.98, 2),  # -2%
+                    round(entry_price * 0.97, 2)   # -3%
+                ],
+                "stop_loss": round(entry_price * 1.01, 2)  # +1%
+            }
+    else:
+        # STANDARD: تارگت‌های بزرگ‌تر
+        if signal == "BUY":
+            return {
+                "targets": [
+                    round(entry_price * 1.02, 2),  # +2%
+                    round(entry_price * 1.05, 2)   # +5%
+                ],
+                "stop_loss": round(entry_price * 0.98, 2)  # -2%
+            }
+        elif signal == "SELL":
+            return {
+                "targets": [
+                    round(entry_price * 0.98, 2),  # -2%
+                    round(entry_price * 0.95, 2)   # -5%
+                ],
+                "stop_loss": round(entry_price * 1.02, 2)  # +2%
+            }
+    
+    # HOLD
+    return {
+        "targets": [],
+        "stop_loss": entry_price
+    }
+
+# ==============================================================================
+# Endpoints بهبودیافته
+# ==============================================================================
+@app.post("/api/analyze")
+@limiter.limit(Config.RATE_LIMIT)
+async def analyze_crypto(request: AnalysisRequest):
+    """تحلیل یک نماد با Rate Limiting و Error Handling بهتر"""
+    logger.info(f"📈 Analysis request: {request.symbol} ({request.timeframe})")
+    
+    try:
+        # Validate symbol exists (optional: check against exchange)
+        if not request.symbol:
+            raise HTTPException(status_code=400, detail="Symbol is required")
+        
+        # انجام تحلیل
+        analysis = analyze_func(request.symbol)
+        
+        # محاسبه صحیح تارگت‌ها
+        targets_data = calculate_targets_and_stop(
+            signal=analysis["signal"],
+            entry_price=analysis["entry_price"],
+            trade_type="STANDARD"
+        )
+        
+        analysis.update(targets_data)
+        analysis["requested_timeframe"] = request.timeframe
+        analysis["analysis_type"] = "STANDARD"
+        analysis["version"] = Config.API_VERSION
+        analysis["timestamp"] = datetime.now().isoformat()
+        
+        return analysis
+        
+    except ValueError as e:
+        logger.warning(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Analysis error for {request.symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail="خطا در پردازش درخواست. لطفاً دوباره تلاش کنید."
+        )
+
+@app.post("/api/scalp-signal")
+@limiter.limit(Config.RATE_LIMIT)
+async def get_scalp_signal(request: ScalpRequest):
+    """سیگنال اسکالپ با محاسبات دقیق"""
+    logger.info(f"⚡ Scalp request: {request.symbol} ({request.timeframe})")
+    
+    try:
+        # دریافت داده بازار
+        market_data = get_market_data_func(request.symbol, request.timeframe, 50)
+        
+        if not market_data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No market data available for {request.symbol}"
+            )
+        
+        # تحلیل اسکالپ
+        scalp_analysis = analyze_scalp_signal(request.symbol, request.timeframe, market_data)
+        
+        # دریافت قیمت فعلی
+        current_price = scalp_analysis.get("current_price", 0)
+        
+        if current_price <= 0:
+            raise ValueError("Invalid current price")
+        
+        # محاسبه تارگت‌ها با تابع مستقل
+        targets_data = calculate_targets_and_stop(
+            signal=scalp_analysis["signal"],
+            entry_price=current_price,
+            trade_type="SCALP"
+        )
+        
+        response = {
+            "symbol": request.symbol,
+            "timeframe": request.timeframe,
+            "signal": scalp_analysis["signal"],
+            "confidence": scalp_analysis["confidence"],
+            "entry_price": current_price,
+            "rsi": scalp_analysis["rsi"],
+            "sma_20": scalp_analysis["sma_20"],
+            **targets_data,  # اضافه کردن targets و stop_loss
+            "type": "SCALP",
+            "reason": scalp_analysis["reason"],
+            "strategy": f"Scalp Strategy ({request.timeframe})",
+            "version": Config.API_VERSION,
+            "timestamp": datetime.now().isoformat(),
+            "risk_level": "HIGH" if request.timeframe == "1m" else "MEDIUM"
+        }
+        
+        logger.info(f"✅ Scalp signal: {request.symbol} - {scalp_analysis['signal']}")
+        return response
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Scalp signal error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="خطا در تولید سیگنال اسکالپ"
+        )
+
+# ==============================================================================
+# Health Check با جزئیات بیشتر
+# ==============================================================================
+@app.get("/api/health")
+async def health_check():
+    """بررسی سلامت سیستم با جزئیات"""
+    import psutil
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": Config.API_VERSION,
+        "modules": {
+            "utils": UTILS_AVAILABLE,
+            "data_collector": DATA_COLLECTOR_AVAILABLE,
+            "collectors": COLLECTORS_AVAILABLE
+        },
+        "system": {
+            "cpu_percent": psutil.cpu_percent(),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage('/').percent
+        },
+        "features": {
+            "rate_limiting": True,
+            "cors_enabled": True,
+            "validation": True
+        }
+    }
