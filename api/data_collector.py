@@ -1,7 +1,6 @@
 # api/data_collector.py - نسخه 7.4.0
 """
-Data Collector - Lightweight version با پشتیبانی از ایچیموکو
-نسخه سازگار با سیستم جدید
+Data Collector - Lightweight version
 """
 
 from datetime import datetime, timedelta
