@@ -21,6 +21,9 @@ import sys
 import os
 import math
 
+# دریافت پورت از متغیر محیطی Render - این خط مهم است
+PORT = int(os.environ.get("PORT", 10000))  # مقدار پیش‌فرض 10000
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -1016,6 +1019,12 @@ async def startup_event():
     logger.info(f"Starting v{API_VERSION}")
     logger.info(f"Utils Available: {UTILS_AVAILABLE}")
 
+# ==============================================================================
+# Main Entry Point - IMPORTANT FIX FOR RENDER
+# ==============================================================================
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    # Use PORT from environment variable (set by Render)
+    port = int(os.environ.get("PORT", 10000))
+    logger.info(f"Starting server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
