@@ -62,35 +62,69 @@ COLLECTORS_AVAILABLE = False
 
 print("\n[1/3] Importing utils module...")
 
-# Method 1: Try direct import from api directory
-try:
-    # First try absolute import
-    import api.utils as utils_module
-    utils = utils_module
-    UTILS_AVAILABLE = True
-    print("✅ SUCCESS: Utils imported via api.utils")
-except ImportError as e:
-    print(f"❌ Method 1 failed: {e}")
+UTILS_AVAILABLE = False
+utils = None
+
+# Multiple import strategies for robustness
+import_strategies = [
+    # Strategy 1: Direct import (works if both files in same dir)
+    lambda: __import__('utils'),
     
-    # Method 2: Try relative import
+    # Strategy 2: Import with path adjustment
+    lambda: (sys.path.insert(0, os.path.dirname(__file__)) or __import__('utils')),
+    
+    # Strategy 3: Load from file directly
+    lambda: importlib.util.spec_from_file_location(
+        "utils", 
+        os.path.join(os.path.dirname(__file__), "utils.py")
+    )
+]
+
+for i, strategy in enumerate(import_strategies, 1):
     try:
-        from . import utils
-        UTILS_AVAILABLE = True
-        print("✅ SUCCESS: Utils imported via relative import")
-    except ImportError as e:
-        print(f"❌ Method 2 failed: {e}")
-        
-        # Method 3: Try adding parent directory to path
-        try:
-            project_root = os.path.dirname(os.path.dirname(current_dir))
-            sys.path.insert(0, project_root)
-            import api.utils as utils_module
-            utils = utils_module
+        if i == 1:
+            # Direct import
+            import utils
             UTILS_AVAILABLE = True
-            print("✅ SUCCESS: Utils imported via project root")
-        except ImportError as e:
-            print(f"❌ Method 3 failed: {e}")
-            UTILS_AVAILABLE = False
+            print("✅ Strategy 1: Direct import successful")
+            break
+            
+        elif i == 2:
+            # Path adjustment
+            import sys
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.insert(0, current_dir)
+            import utils
+            UTILS_AVAILABLE = True
+            print("✅ Strategy 2: Import with path adjustment successful")
+            break
+            
+        elif i == 3:
+            # Load from file
+            import importlib.util
+            import os
+            import sys
+            
+            utils_path = os.path.join(os.path.dirname(__file__), "utils.py")
+            if os.path.exists(utils_path):
+                spec = importlib.util.spec_from_file_location("utils", utils_path)
+                utils_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(utils_module)
+                sys.modules["utils"] = utils_module
+                utils = utils_module
+                UTILS_AVAILABLE = True
+                print("✅ Strategy 3: Loaded from file directly")
+                break
+            else:
+                print(f"❌ utils.py not found at: {utils_path}")
+                
+    except Exception as e:
+        print(f"❌ Strategy {i} failed: {str(e)[:100]}")
+
+if not UTILS_AVAILABLE:
+    print("⚠️ All import strategies failed. Using mock functions.")
 
 # ==============================================================================
 # Import Individual Functions (IF UTILS AVAILABLE)
