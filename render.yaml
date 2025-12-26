@@ -1,0 +1,36 @@
+# render.yaml
+services:
+  - type: web
+    name: crypto-trading-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      echo "=== Directory Structure ==="
+      ls -la
+      echo "=== API Directory ==="
+      ls -la api/
+      echo "=== Python Path ==="
+      python -c "import sys; print('\n'.join(sys.path))"
+      echo "=== Test Import ==="
+      python -c "from api.main import app; print('✅ Import successful')" || echo "❌ Import failed"
+    
+    startCommand: python launcher.py
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PORT
+        value: 10000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONPATH
+        value: "/opt/render/project/src"
+    
+    healthCheckPath: /api/health
+    
+    autoDeploy: true
