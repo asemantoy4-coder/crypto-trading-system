@@ -934,38 +934,27 @@ async def get_performance_stats():
     }
 
 # ==============================================================================
-# Startup and Main
+# 1. LIFESPAN MANAGEMENT
 # ==============================================================================
-
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # کدهایی که هنگام شروع اجرا می‌شوند
+    """مدیریت شروع و پایان برنامه بدون خطای فاصله گذاری"""
     logger.info(f"🚀 Starting Crypto AI Trading System v{API_VERSION}")
-    logger.info(f"📦 Utils Available: {UTILS_AVAILABLE}")
+    logger.info("✅ System startup completed successfully!")
     
-    # بررسی توابع کلیدی
-    has_tdr_atr = hasattr(utils, 'calculate_tdr') if UTILS_AVAILABLE else False
-    logger.info(f"📦 TDR/ATR Functions: {has_tdr_atr}")
+    yield
     
-    print(f"\n{'=' * 60}")
-    print(f"PRO SCALPER EDITION v{API_VERSION} - READY")
-    print(f"API Documentation: /docs")
-    print(f"{'=' * 60}\n")
-    
-    yield  # در این نقطه برنامه آماده دریافت درخواست است
-    
-    # کدهایی که هنگام خاموش شدن اجرا می‌شوند
     logger.info("👋 Shutting down Crypto AI Trading System")
 
 # ==============================================================================
-# 2. APP DEFINITION & MIDDLEWARE
+# 2. APP DEFINITION
 # ==============================================================================
 
 app = FastAPI(
     title=f"Crypto AI Trading System v{API_VERSION}",
-    description="Professional Scalper Edition - ATR Risk Management",
+    description="Professional Scalper Edition",
     version=API_VERSION,
     lifespan=lifespan
 )
@@ -979,22 +968,17 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# 3. RUNNER CONFIGURATION
+# 3. RUNNER
 # ==============================================================================
 
 if __name__ == "__main__":
-    # دریافت پورت از محیط سرور (Render) یا استفاده از 8000 برای تست محلی
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     
-    # تنظیمات بهینه شده برای اجرای پایدار در Render
     uvicorn.run(
-        "main:app",  # استفاده از رشته برای جلوگیری از خطای reload/workers
+        "main:app",
         host=host,
         port=port,
         log_level="info",
-        access_log=True,
-        workers=1,
-        loop="asyncio",
-        timeout_keep_alive=30
+        workers=1
     )
