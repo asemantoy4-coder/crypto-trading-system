@@ -59,22 +59,8 @@ COLLECTORS_AVAILABLE = False
 # ==============================================================================
 # Import Utils Module (DIRECT IMPORT FIX)
 # ==============================================================================
+
 print("\n[1/3] Importing utils module...")
-UTILS_AVAILABLE = False
-
-# اضافه کردن مسیر جاری به sys.path برای اطمینان از پیدا شدن پوشه api
-current_path = os.path.dirname(os.path.abspath(__file__))
-if current_path not in sys.path:
-    sys.path.insert(0, current_path)
-
-try:
-    import api.utils as utils_module
-    utils = utils_module
-    UTILS_AVAILABLE = True
-    print("✅ SUCCESS: Utils imported successfully")
-except Exception as e:
-    print(f"❌ Failed to import utils: {e}")
-    UTILS_AVAILABLE = False
 
 # ==============================================================================
 # Import Individual Functions (IF UTILS AVAILABLE)
