@@ -939,57 +939,62 @@ async def get_performance_stats():
 
 from contextlib import asynccontextmanager
 
-# ۱. تعریف تابع Lifespan برای مدیریت شروع و پایان برنامه
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """مدیریت رویدادهای شروع و پایان برنامه (جایگزین startup_event)"""
-    # کدهایی که هنگام شروع (Startup) اجرا می‌شوند:
+    # کدهایی که هنگام شروع اجرا می‌شوند
     logger.info(f"🚀 Starting Crypto AI Trading System v{API_VERSION}")
     logger.info(f"📦 Utils Available: {UTILS_AVAILABLE}")
-    logger.info(f"📦 Pandas TA: {HAS_PANDAS_TA}")
     
-    # بررسی وجود توابع TDR/ATR در ماژول utils
+    # بررسی توابع کلیدی
     has_tdr_atr = hasattr(utils, 'calculate_tdr') if UTILS_AVAILABLE else False
     logger.info(f"📦 TDR/ATR Functions: {has_tdr_atr}")
-    logger.info(f"⚡ Performance Mode: Optimized for Scalping")
     
     print(f"\n{'=' * 60}")
-    print(f"PRO SCALPER EDITION v{API_VERSION}")
-    print(f"{'=' * 60}")
-    print("Features:")
-    print("  • Professional Scalper Engine")
-    print("  • ATR-based Risk Management")
-    print("  • AI Confirmation System")
-    print("  • Multi-timeframe Analysis")
-    print("  • Low Latency Architecture")
-    print(f"{'=' * 60}")
-    print(f"API Documentation: /docs")  # در FastAPI پورتال داکیومنت معمولاً در /docs است
-    print(f"Health Check: /health")
+    print(f"PRO SCALPER EDITION v{API_VERSION} - READY")
+    print(f"API Documentation: /docs")
     print(f"{'=' * 60}\n")
     
-    yield  # در این نقطه برنامه شروع به کار می‌کند
+    yield  # در این نقطه برنامه آماده دریافت درخواست است
     
-    # کدهایی که هنگام بسته شدن (Shutdown) اجرا می‌شوند:
+    # کدهایی که هنگام خاموش شدن اجرا می‌شوند
     logger.info("👋 Shutting down Crypto AI Trading System")
 
-# ۲. معرفی lifespan به اپلیکیشن FastAPI
-# این خط را پیدا کن و به این شکل تغییر بده:
-app = FastAPI(title="Pro Crypto AI Scalper", lifespan=lifespan)
-    
-    logger.info("✅ System startup completed successfully!")
+# ==============================================================================
+# 2. APP DEFINITION & MIDDLEWARE
+# ==============================================================================
+
+app = FastAPI(
+    title=f"Crypto AI Trading System v{API_VERSION}",
+    description="Professional Scalper Edition - ATR Risk Management",
+    version=API_VERSION,
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==============================================================================
+# 3. RUNNER CONFIGURATION
+# ==============================================================================
 
 if __name__ == "__main__":
+    # دریافت پورت از محیط سرور (Render) یا استفاده از 8000 برای تست محلی
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     
-    # Optimized server configuration for scalping
+    # تنظیمات بهینه شده برای اجرای پایدار در Render
     uvicorn.run(
-        app,
+        "main:app",  # استفاده از رشته برای جلوگیری از خطای reload/workers
         host=host,
         port=port,
         log_level="info",
         access_log=True,
-        workers=2,  # Multi-core processing
-        loop="asyncio",  # Async optimization
+        workers=1,
+        loop="asyncio",
         timeout_keep_alive=30
     )
