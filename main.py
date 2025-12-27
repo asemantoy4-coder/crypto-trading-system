@@ -162,7 +162,8 @@ class AnalysisRequest(BaseModel):
     timeframe: str = "5m"
 
 class ScalpRequest(BaseModel):
-    symbol: str = Field(..., example="BTCUSDT")
+    # تغییر example به json_schema_extra برای رفع هشدار
+    symbol: str = Field(..., json_schema_extra={"example": "BTCUSDT"})
     timeframe: str = Field(default="5m", pattern="^(1m|5m|15m)$")
     use_ai: bool = True
 
@@ -178,7 +179,8 @@ class CombinedRequest(BaseModel):
     include_macd: bool = True
 
 class ScalpConfig(BaseModel):
-    symbol: str = Field(..., example="BTCUSDT")
+    # تغییر example به json_schema_extra برای رفع هشدار
+    symbol: str = Field(..., json_schema_extra={"example": "BTCUSDT"})
     timeframe: str = Field(default="5m", pattern="^(1m|5m|15m)$")
     risk_reward_ratio: float = Field(default=1.5, ge=1.0)
     leverage: int = Field(default=1, ge=1, le=125)
@@ -191,7 +193,8 @@ class SignalDetail(BaseModel):
     targets: List[float]
     stop_loss: float
     atr_volatility: float
-    timestamp: str = datetime.utcnow().isoformat()
+    # استفاده از متد جدید برای زمان
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 class SignalResponse(BaseModel):
     status: str
