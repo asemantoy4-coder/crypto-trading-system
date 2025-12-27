@@ -59,38 +59,22 @@ COLLECTORS_AVAILABLE = False
 # ==============================================================================
 # Import Utils Module (DIRECT IMPORT FIX)
 # ==============================================================================
-
 print("\n[1/3] Importing utils module...")
+UTILS_AVAILABLE = False
 
-# Method 1: Try direct import from api directory
+# اضافه کردن مسیر جاری به sys.path برای اطمینان از پیدا شدن پوشه api
+current_path = os.path.dirname(os.path.abspath(__file__))
+if current_path not in sys.path:
+    sys.path.insert(0, current_path)
+
 try:
-    # First try absolute import
     import api.utils as utils_module
     utils = utils_module
     UTILS_AVAILABLE = True
-    print("✅ SUCCESS: Utils imported via api.utils")
-except ImportError as e:
-    print(f"❌ Method 1 failed: {e}")
-    
-    # Method 2: Try relative import
-    try:
-        from . import utils
-        UTILS_AVAILABLE = True
-        print("✅ SUCCESS: Utils imported via relative import")
-    except ImportError as e:
-        print(f"❌ Method 2 failed: {e}")
-        
-        # Method 3: Try adding parent directory to path
-        try:
-            project_root = os.path.dirname(os.path.dirname(current_dir))
-            sys.path.insert(0, project_root)
-            import api.utils as utils_module
-            utils = utils_module
-            UTILS_AVAILABLE = True
-            print("✅ SUCCESS: Utils imported via project root")
-        except ImportError as e:
-            print(f"❌ Method 3 failed: {e}")
-            UTILS_AVAILABLE = False
+    print("✅ SUCCESS: Utils imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import utils: {e}")
+    UTILS_AVAILABLE = False
 
 # ==============================================================================
 # Import Individual Functions (IF UTILS AVAILABLE)
