@@ -934,13 +934,20 @@ async def get_performance_stats():
 # Startup and Main
 # ==============================================================================
 
-@app.on_event("startup")
-async def startup_event():
-    """Startup event handler"""
+from contextlib import asynccontextmanager
+
+# ۱. تعریف تابع Lifespan برای مدیریت شروع و پایان برنامه
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """مدیریت رویدادهای شروع و پایان برنامه (جایگزین startup_event)"""
+    # کدهایی که هنگام شروع (Startup) اجرا می‌شوند:
     logger.info(f"🚀 Starting Crypto AI Trading System v{API_VERSION}")
     logger.info(f"📦 Utils Available: {UTILS_AVAILABLE}")
     logger.info(f"📦 Pandas TA: {HAS_PANDAS_TA}")
-    logger.info(f"📦 TDR/ATR Functions: {HAS_TDR_ATR if UTILS_AVAILABLE else False}")
+    
+    # بررسی وجود توابع TDR/ATR در ماژول utils
+    has_tdr_atr = hasattr(utils, 'calculate_tdr') if UTILS_AVAILABLE else False
+    logger.info(f"📦 TDR/ATR Functions: {has_tdr_atr}")
     logger.info(f"⚡ Performance Mode: Optimized for Scalping")
     
     print(f"\n{'=' * 60}")
@@ -953,10 +960,18 @@ async def startup_event():
     print("  • Multi-timeframe Analysis")
     print("  • Low Latency Architecture")
     print(f"{'=' * 60}")
-    print(f"API Documentation: /api/docs")
-    print(f"Health Check: /api/health")
-    print(f"Performance Stats: /api/v1/performance")
+    print(f"API Documentation: /docs")  # در FastAPI پورتال داکیومنت معمولاً در /docs است
+    print(f"Health Check: /health")
     print(f"{'=' * 60}\n")
+    
+    yield  # در این نقطه برنامه شروع به کار می‌کند
+    
+    # کدهایی که هنگام بسته شدن (Shutdown) اجرا می‌شوند:
+    logger.info("👋 Shutting down Crypto AI Trading System")
+
+# ۲. معرفی lifespan به اپلیکیشن FastAPI
+# این خط را پیدا کن و به این شکل تغییر بده:
+app = FastAPI(title="Pro Crypto AI Scalper", lifespan=lifespan)
     
     logger.info("✅ System startup completed successfully!")
 
