@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: crypto-trading-api
+    env: python
+    plan: free # یا starter اگر پول دارید
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "true"
