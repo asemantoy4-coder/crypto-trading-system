@@ -24,7 +24,7 @@ import time
 import asyncio
 import numpy as np
 
-# Try to import optional libraries
+# --- ۱. بررسی کتابخانه‌های اختیاری ---
 try:
     import pandas as pd
     HAS_PANDAS = True
@@ -37,74 +37,51 @@ try:
 except ImportError:
     HAS_PANDAS_TA = False
 
-# Configure logging
+# --- ۲. تنظیمات لاگ (اصلاح شده برای Render) ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)-8s | %(name)s : %(message)s',
     handlers=[
-        logging.FileHandler('trading_system.log'),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout) # لاگ‌ها در کنسول Render نمایش داده می‌شوند
     ]
 )
 logger = logging.getLogger("CryptoAIScalper")
 
-# ==============================================================================
-# Path Setup
-# ==============================================================================
-
+# --- ۳. تنظیم مسیرها (Path Setup) ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-
-sys.path.insert(0, current_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 print("=" * 60)
-print(f"PRO SCALPER EDITION v8.0.0")
+print(f"PRO SCALPER EDITION v8.5.0")
 print(f"Pandas: {'Available' if HAS_PANDAS else 'Not available'}")
 print(f"Pandas TA: {'Available' if HAS_PANDAS_TA else 'Not available'}")
 print(f"Current directory: {current_dir}")
 
-# ==============================================================================
-# Module Availability Flags
-# ==============================================================================
-
+# --- ۴. وضعیت ماژول‌ها ---
 UTILS_AVAILABLE = False
 DATA_COLLECTOR_AVAILABLE = False
 COLLECTORS_AVAILABLE = False
 
-# ==============================================================================
-# Import Utils Module
-# ==============================================================================
-
+# --- ۵. وارد کردن هوشمند ماژول Utils (نسخه اصلاح شده) ---
 print("\n[1/3] Importing utils module...")
 
-# Multiple import strategies
-import_methods = [
-    ("api.utils", "Absolute import from api directory"),
-    (".utils", "Relative import"),
-    ("utils", "Direct import")
-]
-
-for module_path, method_name in import_methods:
+try:
+    # چون فایل‌ها در Root هستند، فقط همین یک روش استاندارد کافی است
+    import utils as utils_module
+    utils = utils_module
+    UTILS_AVAILABLE = True
+    print(f"✅ SUCCESS: Utils imported via Direct import")
+except ImportError as e:
+    # تلاش مجدد با متد نسبی در صورت نیاز سرور
     try:
-        if module_path.startswith("."):
-            from . import utils as utils_module
-        elif module_path == "utils":
-            import utils as utils_module
-        else:
-            exec(f"import {module_path} as utils_module")
-        
+        from . import utils as utils_module
         utils = utils_module
         UTILS_AVAILABLE = True
-        print(f"✅ SUCCESS: Utils imported via {method_name}")
-        break
-    except ImportError as e:
-        print(f"❌ {method_name} failed: {e}")
-        continue
-    except Exception as e:
-        print(f"❌ {method_name} error: {e}")
-        continue
+        print(f"✅ SUCCESS: Utils imported via Relative import")
+    except Exception as e2:
+        print(f"❌ Critical Error: utils.py not found in {current_dir}")
+        UTILS_AVAILABLE = False
 
 # ==============================================================================
 # Import Individual Functions
