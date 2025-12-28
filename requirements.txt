@@ -5,4 +5,4 @@ numpy
 requests
 python-binance
 pydantic
-pandas_ta==0.3.14b0
+pandas-ta==0.3.14b0
