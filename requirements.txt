@@ -1,8 +1,8 @@
 fastapi
 uvicorn
 pandas
-pandas_ta
 numpy
 requests
 python-binance
 pydantic
+https://github.com/twopirllc/pandas-ta/archive/master.zip
