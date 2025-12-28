@@ -337,3 +337,22 @@ def get_enhanced_scalp_signal(data, symbol, timeframe="5m"):
     except Exception as e:
         logger.error(f"❌ Error in get_enhanced_scalp_signal for {symbol}: {e}")
         return None
+
+import requests
+
+def get_market_data_with_fallback(symbol, timeframe, limit=100):
+    """دریافت داده‌های زنده از بایننس برای تحلیل"""
+    try:
+        url = f"https://api.binance.com/api/v3/klines"
+        params = {
+            "symbol": symbol.upper(),
+            "interval": timeframe,
+            "limit": limit
+        }
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None
