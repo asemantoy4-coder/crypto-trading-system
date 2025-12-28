@@ -36,17 +36,14 @@ logger = logging.getLogger(__name__)
 # بررسی وجود ماژول‌های ضروری
 try:
     import pandas as pd
+    import pandas_ta as ta # اضافه کردن کلمه as ta
     HAS_PANDAS = True
+    HAS_PANDAS_TA = True
+    logger.info("✅ Pandas and Pandas_TA integrated successfully")
 except ImportError:
     HAS_PANDAS = False
-    logger.warning("⚠️ Pandas not available, using fallback methods")
-
-try:
-    import pandas_ta
-    HAS_PANDAS_TA = True
-except ImportError:
     HAS_PANDAS_TA = False
-    logger.warning("⚠️ Pandas_TA not available")
+    logger.warning("⚠️ Critical technical libraries missing")
 
 # بررسی ماژول‌های سفارشی
 try:
