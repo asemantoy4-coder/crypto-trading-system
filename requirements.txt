@@ -5,4 +5,4 @@ numpy
 requests
 python-binance
 pydantic
-https://github.com/twopirllc/pandas-ta/archive/master.zip
+pandas_ta==0.3.14b0
