@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from typing import List, Optional
 import numpy as np
+from pydantic import BaseModel
 
 # اضافه کردن مسیر جاری به پایتون برای پیدا کردن فایل‌ها
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -15,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # CONFIGURATION
 # ==============================================================================
 
-API_VERSION = "8.1.0"
+API_VERSION = "8.5.0"
 DEBUG_MODE = os.environ.get("DEBUG", "False").lower() == "true"
 
 # Setup logging
@@ -27,7 +28,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("CryptoAIScalper")
 
 # ==============================================================================
 # MODULE IMPORTS
@@ -75,13 +76,6 @@ except ImportError as e:
     COLLECTORS_AVAILABLE = False
     ScalperEngine = type('ScalperEngine', (), {})
 
-# بررسی ماژول data_collector
-try:
-    from data_collector import fetch_binance_klines, convert_to_dataframe
-    DATA_COLLECTOR_AVAILABLE = True
-except ImportError:
-    DATA_COLLECTOR_AVAILABLE = False
-
 # بررسی توابع تخصصی
 HAS_TDR_ATR = hasattr(ScalperEngine, 'calculate_tdr_advanced') if COLLECTORS_AVAILABLE else False
 
@@ -93,15 +87,13 @@ app = FastAPI(
     title="Crypto AI Trading System",
     description="Professional Scalping & Trading Analysis API",
     version=API_VERSION,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # ==============================================================================
 # MODELS
 # ==============================================================================
-
-from pydantic import BaseModel
 
 class ScalpRequest(BaseModel):
     symbol: str = "BTCUSDT"
@@ -151,22 +143,21 @@ async def read_root():
         ],
         "modules": {
             "utils": UTILS_AVAILABLE,
-            "data_collector": DATA_COLLECTOR_AVAILABLE,
             "collectors": COLLECTORS_AVAILABLE,
             "pandas_ta": HAS_PANDAS_TA,
             "tdr_atr": HAS_TDR_ATR if UTILS_AVAILABLE else False
         },
         "endpoints": {
-            "health": "/api/health",
-            "analyze_v1": "/api/v1/analyze",
-            "analyze_enhanced": "/api/analyze",
-            "market_scan": "/api/v1/market-scan",
-            "performance": "/api/v1/performance"
+            "health": "/health",
+            "analyze_v1": "/v1/analyze",
+            "analyze_enhanced": "/analyze",
+            "market_scan": "/v1/market-scan",
+            "performance": "/v1/performance"
         }
     }
 
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
     return {
         "status": "Healthy",
@@ -186,7 +177,7 @@ async def health_check():
     }
 
 
-@app.post("/api/v1/analyze", response_model=SignalDetail)
+@app.post("/v1/analyze", response_model=SignalDetail)
 async def analyze_pair(request: ScalpRequest):
     """
     Advanced Analysis Endpoint with Momentum Logic and Tight Stop Loss
@@ -225,7 +216,15 @@ async def analyze_pair(request: ScalpRequest):
         # محاسبه شتاب (Momentum)
         close_prices = [float(c[4]) for c in data[-10:]]
         final_signal = analysis_result.get("signal", "HOLD")
-        roc, persian_msg, risky = get_momentum_logic(close_prices, final_signal)
+        
+        # استفاده از تابع get_momentum_logic از utils
+        if 'get_momentum_logic' in globals():
+            roc, persian_msg, risky = get_momentum_logic(close_prices, final_signal)
+        else:
+            # Fallback در صورت عدم وجود تابع
+            roc = 0.0
+            persian_msg = "تحلیل شتاب در دسترس نیست"
+            risky = True
         
         # AI تایید (در صورت درخواست)
         ai_advice = ""
@@ -265,7 +264,7 @@ async def analyze_pair(request: ScalpRequest):
         )
 
 
-@app.post("/api/analyze")
+@app.post("/analyze")
 async def analyze_market(request: ScalpRequest):
     """
     Enhanced Analysis Endpoint using utils module
@@ -277,103 +276,32 @@ async def analyze_market(request: ScalpRequest):
         if not UTILS_AVAILABLE:
             raise HTTPException(
                 status_code=503,
-                detail="Utils module not available. System maintenance in progress."
+                detail="سیستم تحلیل در دسترس نیست"
             )
         
         # دریافت داده‌های بازار
         data = get_market_data_with_fallback(request.symbol, request.timeframe, 100)
         if not data or len(data) < 20:
-            raise HTTPException(
-                status_code=400,
-                detail="Insufficient market data for analysis"
-            )
+            return {"signal": "HOLD", "message": "دیتا کافی نیست"}
         
         # استفاده از تابع پیشرفته تحلیل از utils
         result = get_enhanced_scalp_signal(data, request.symbol, request.timeframe)
         
-        # محاسبه شاخص‌های اضافی
-        rsi_val = calculate_simple_rsi(data, 14)
-        current_price = float(data[-1][4])
+        # افزودن اطلاعات اضافی اگر در نتیجه موجود نیست
+        if not result:
+            result = {"signal": "HOLD", "message": "تحلیل انجام نشد"}
+        elif "timestamp" not in result:
+            result["timestamp"] = datetime.now(timezone.utc).isoformat()
         
-        # محاسبه ATR (در صورت موجود بودن)
-        atr_value = 0
-        volatility_score = 50
-        if COLLECTORS_AVAILABLE:
-            try:
-                atr_value, _, volatility_score = ScalperEngine.calculate_atr_advanced(data)
-            except:
-                pass
-        
-        # AI تایید (در صورت درخواست)
-        ai_advice = "AI analysis skipped"
-        if request.use_ai and COLLECTORS_AVAILABLE:
-            try:
-                tdr_score = ScalperEngine.calculate_tdr_advanced(data) if HAS_TDR_ATR else 0.5
-                ai_advice = ScalperEngine.get_ai_confirmation(
-                    request.symbol, 
-                    result.get("signal", "HOLD"), 
-                    tdr_score, 
-                    rsi_val, 
-                    current_price, 
-                    request.use_ai
-                )
-            except Exception as e:
-                ai_advice = f"AI error: {str(e)[:50]}"
-        
-        # محاسبه نسبت ریسک به ریوارد
-        stop_loss = result.get("stop_loss", current_price)
-        targets = result.get("targets", [])
-        risk_reward = 0
-        if len(targets) > 0 and stop_loss > 0 and current_price > 0:
-            if result.get("signal") == "BUY":
-                risk = current_price - stop_loss
-                reward = targets[0] - current_price
-                if risk > 0:
-                    risk_reward = round(reward / risk, 2)
-            elif result.get("signal") == "SELL":
-                risk = stop_loss - current_price
-                reward = current_price - targets[0]
-                if risk > 0:
-                    risk_reward = round(reward / risk, 2)
-        
-        # آماده‌سازی پاسخ
-        response = {
-            "symbol": request.symbol.upper(),
-            "timeframe": request.timeframe,
-            "signal": result.get("signal", "HOLD"),
-            "confidence": result.get("confidence", 0.5),
-            "price": current_price,
-            "entry_price": result.get("entry_price", current_price),
-            "tdr_status": "Trending" if result.get("confidence", 0) > 0.6 else "Ranging",
-            "tdr_value": round(result.get("confidence", 0.5) * 100, 2),
-            "rsi": round(rsi_val, 2),
-            "momentum": result.get("momentum_message", ""),
-            "risk_management": {
-                "targets": targets,
-                "stop_loss": stop_loss,
-                "atr_volatility": round(atr_value, 8),
-                "volatility_score": round(volatility_score, 1),
-                "risk_reward_ratio": risk_reward,
-                "max_risk_percent": result.get("stop_loss_percent", 1.5)
-            },
-            "ai_confirmation": ai_advice,
-            "processing_time_ms": round((time.time() - start_time) * 1000, 2),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": API_VERSION,
-            "source": "Enhanced Utils Analysis"
-        }
-        
-        logger.info(f"✅ Enhanced Analysis: {result.get('signal', 'HOLD')} for {request.symbol}")
-        
-        return response
+        return result
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Enhanced analysis error: {e}", exc_info=True)
+        logger.error(f"❌ Analysis Error: {e}")
         raise HTTPException(
             status_code=500, 
-            detail=f"Analysis error: {str(e)[:200]}"
+            detail=f"خطا در تحلیل: {str(e)[:200]}"
         )
 
 
@@ -381,7 +309,7 @@ async def analyze_market(request: ScalpRequest):
 # MARKET SCANNER
 # ==============================================================================
 
-@app.get("/api/v1/market-scan")
+@app.get("/v1/market-scan")
 async def market_scanner():
     """
     اسکنر بازار برای پیشنهادات لحظه‌ای
@@ -443,7 +371,7 @@ async def market_scanner():
         }
 
 
-@app.get("/api/v1/scan-all/{symbol}")
+@app.get("/v1/scan-all/{symbol}")
 async def scan_all_timeframes_pro(symbol: str):
     """Professional multi-timeframe scanner using utils module"""
     timeframes = ["1m", "5m", "15m", "1h", "4h"]
@@ -555,7 +483,7 @@ async def monitor_performance(request, call_next):
     return response
 
 
-@app.get("/api/v1/performance")
+@app.get("/v1/performance")
 async def get_performance_stats():
     """Get system performance statistics"""
     latency_ms = round(performance_monitor.avg_latency * 1000, 2)
@@ -591,21 +519,21 @@ async def get_performance_stats():
 # COMPATIBILITY ENDPOINTS (برای نسخه‌های قدیمی)
 # ==============================================================================
 
-@app.post("/api/scalp-signal")
+@app.post("/scalp-signal")
 async def get_scalp_signal(request: ScalpRequest):
     """Legacy endpoint for backward compatibility"""
     return await analyze_market(request)
 
 
-@app.post("/api/ichimoku-scalp")
+@app.post("/ichimoku-scalp")
 async def get_ichimoku_scalp_signal(request: IchimokuRequest):
     """Legacy Ichimoku endpoint"""
     return {
         "symbol": request.symbol,
         "timeframe": request.timeframe,
         "signal": "HOLD",
-        "message": "این endpoint به /api/analyze منتقل شده است",
-        "redirect": "/api/analyze",
+        "message": "این endpoint به /analyze منتقل شده است",
+        "redirect": "/analyze",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
@@ -634,10 +562,10 @@ async def startup_event():
     print("  • Low Latency Architecture")
     print("  • Persian User Interface")
     print(f"{'=' * 60}")
-    print(f"API Documentation: /api/docs")
-    print(f"Health Check: /api/health")
-    print(f"Performance Stats: /api/v1/performance")
-    print(f"Market Scanner: /api/v1/market-scan")
+    print(f"API Documentation: /docs")
+    print(f"Health Check: /health")
+    print(f"Performance Stats: /v1/performance")
+    print(f"Market Scanner: /v1/market-scan")
     print(f"{'=' * 60}\n")
     
     logger.info("✅ System startup completed successfully!")
@@ -655,7 +583,7 @@ if __name__ == "__main__":
     logger.info(f"🌐 Starting server on {host}:{port}")
     
     uvicorn.run(
-        "main:app",
+        app,
         host=host,
         port=port,
         reload=False,
