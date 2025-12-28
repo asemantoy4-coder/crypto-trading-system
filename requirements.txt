@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pandas
-pandas_ta
-numpy
-requests
-python-binance
