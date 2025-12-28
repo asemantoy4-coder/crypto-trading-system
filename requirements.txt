@@ -2,6 +2,6 @@ fastapi
 uvicorn
 pandas
 pandas_ta
-python-binance
-requests
 numpy
+requests
+python-binance
