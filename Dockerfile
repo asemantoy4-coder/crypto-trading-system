@@ -1,7 +1,5 @@
-# تغییر از 3.10 به 3.12
 FROM python:3.12-slim
 
-# بقیه دستورات ثابت بماند...
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
@@ -12,7 +10,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نصب مستقیم نسخه پایدار
 RUN pip install --no-cache-dir pandas_ta
 
 COPY . .
