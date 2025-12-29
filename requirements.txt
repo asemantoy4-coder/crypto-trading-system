@@ -3,4 +3,4 @@ uvicorn
 pandas
 numpy
 python-binance
-pandas_ta
+pandas-ta
