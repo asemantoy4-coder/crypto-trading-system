@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-requests
-yfinance
-pandas
-pandas-ta
-numpy
 pydantic
+pandas
+pandas_ta
+yfinance
+requests
+numpy
