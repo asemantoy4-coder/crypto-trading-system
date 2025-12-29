@@ -3,4 +3,4 @@ uvicorn
 pandas
 numpy
 python-binance
-pandas-ta
+pandas-ta==0.3.14b
