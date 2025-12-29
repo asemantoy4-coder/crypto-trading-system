@@ -1,6 +1,4 @@
 fastapi
 uvicorn
 pandas
-numpy
 python-binance
-https://github.com/twopirllc/pandas-ta/archive/refs/heads/master.zip
