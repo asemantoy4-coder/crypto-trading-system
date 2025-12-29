@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pandas
+numpy
+python-binance
+pandas_ta
