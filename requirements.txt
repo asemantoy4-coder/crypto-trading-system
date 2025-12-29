@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pandas
-numpy
-requests
-python-binance
-https://github.com/twopirllc/pandas-ta/archive/refs/heads/master.zip
