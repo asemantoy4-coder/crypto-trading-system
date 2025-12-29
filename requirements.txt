@@ -3,4 +3,4 @@ uvicorn
 pandas
 numpy
 python-binance
-pandas-ta==0.3.14b
+https://github.com/twopirllc/pandas-ta/archive/refs/heads/master.zip
