@@ -41,13 +41,38 @@ def format_binance_price(price, symbol):
 
 def get_market_data_with_fallback(symbol, timeframe, limit):
     """
-    تابع کمکی برای دریافت دیتا (باید در main یا اینجا باشد)
-    این تابع معمولاً با استفاده از کتابخانه binance دیتا می‌گیرد
+    دریافت داده‌های زنده از صرافی بایننس با استفاده از کتابخانه CCXT
     """
-    logger.debug(f"دریافت داده بازار برای {symbol} - تایم‌فریم: {timeframe}")
-    # اینجا باید کد اتصال به API Binance قرار گیرد
-    # فعلاً آرایه خالی برمی‌گرداند
-    return []
+    import ccxt
+    try:
+        # ایجاد اتصال به بایننس
+        exchange = ccxt.binance({
+            'enableRateLimit': True,
+            'options': {'defaultType': 'spot'}
+        })
+        
+        # استانداردسازی نام نماد
+        clean_symbol = symbol.upper().replace("/", "")
+        if "USDT" in clean_symbol:
+            formatted_symbol = clean_symbol.replace("USDT", "/USDT")
+        else:
+            formatted_symbol = f"{clean_symbol}/USDT"
+
+        logger.info(f"🔄 در حال فراخوانی دیتای {formatted_symbol} از Binance...")
+        
+        # دریافت داده‌های کندل‌استیک (OHLCV)
+        ohlcv = exchange.fetch_ohlcv(formatted_symbol, timeframe=timeframe, limit=int(limit))
+        
+        if ohlcv and len(ohlcv) > 0:
+            logger.info(f"✅ {len(ohlcv)} کندل دریافت شد.")
+            return ohlcv
+        
+        logger.warning(f"⚠️ دیتایی دریافت نشد.")
+        return []
+            
+    except Exception as e:
+        logger.error(f"❌ خطا در لایه دریافت داده: {e}")
+        return []
 
 # ==============================================================================
 # 2. توابع تحلیل تکنیکال
