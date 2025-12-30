@@ -20,7 +20,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # CONFIGURATION
 # ==============================================================================
 
-API_VERSION = "8.5.2"
+API_VERSION = "8.5.3"
 DEBUG_MODE = os.environ.get("DEBUG", "False").lower() == "true"
 
 # لاگینگ بهینه
@@ -202,12 +202,17 @@ class SignalDetail(BaseModel):
     entry_price: float
     stop_loss: float
     targets: List[float]
+    targets_formatted: Optional[List[str]] = None
+    profit_percentages: Optional[List[float]] = None
+    risk_reward: Optional[float] = None
     momentum_score: float
     user_message: str
     is_risky_for_retail: bool
     execution_type: str
     signal_id: str
     timestamp: str
+    confidence: float
+    timeframe: str
 
 # ==============================================================================
 # SCHEDULER FUNCTIONS (فوق‌سبک)
@@ -343,7 +348,9 @@ async def root():
             "analyze": "POST /analyze",
             "market_scan": "/v1/market-scan",
             "telegram_test": "/v1/telegram-test",
-            "performance": "/v1/performance"
+            "performance": "/v1/performance",
+            "signal_details": "POST /v1/signal-details",
+            "signal_html": "GET /v1/signal-html/{symbol}"
         },
         "server_time": datetime.now(timezone.utc).isoformat(),
         "tehran_time": datetime.now(pytz.timezone('Asia/Tehran')).strftime('%Y-%m-%d %H:%M:%S')
@@ -402,30 +409,109 @@ async def analyze(request: ScalpRequest):
         
         # افزودن اطلاعات اضافی
         processing_time = round((time.time() - start_time) * 1000, 2)
+        
+        # اطمینان از وجود کلیدهای ضروری
+        required_keys = ['targets', 'stop_loss', 'entry_price', 'confidence']
+        for key in required_keys:
+            if key not in result:
+                result[key] = [] if key == 'targets' else 0
+        
+        # فرمت کردن تارگت‌ها برای نمایش بهتر
+        if 'targets' in result and result['targets']:
+            # اگر کمتر از 3 تارگت داریم، کامل کنیم
+            while len(result['targets']) < 3:
+                if result['targets']:
+                    result['targets'].append(result['targets'][-1] * 1.01)  # 1% افزایش
+                else:
+                    result['targets'] = [0, 0, 0]
+        
+        # فرمت کردن اعداد برای نمایش
+        entry_price = result.get('entry_price', 0)
+        formatted_entry = f"{entry_price:.2f}" if entry_price >= 1 else f"{entry_price:.5f}"
+        formatted_sl = f"{result.get('stop_loss', 0):.2f}" if result.get('stop_loss', 0) >= 1 else f"{result.get('stop_loss', 0):.5f}"
+        
+        formatted_targets = []
+        profit_percentages = []
+        
+        if result['targets']:
+            for target in result['targets'][:3]:
+                formatted_target = f"{target:.2f}" if target >= 1 else f"{target:.5f}"
+                formatted_targets.append(formatted_target)
+                
+                if entry_price > 0:
+                    profit_pct = ((target - entry_price) / entry_price) * 100
+                    profit_percentages.append(round(profit_pct, 2))
+                else:
+                    profit_percentages.append(0)
+        
         result.update({
             "processing_time_ms": processing_time,
             "version": API_VERSION,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "cache_hit": False
+            "cache_hit": False,
+            "timeframe": request.timeframe,
+            "entry_price_formatted": formatted_entry,
+            "stop_loss_formatted": formatted_sl,
+            "targets_formatted": formatted_targets,
+            "profit_percentages": profit_percentages
         })
         
         logger.info(f"✅ Analysis: {request.symbol} -> {result.get('signal', 'UNKNOWN')} ({processing_time}ms)")
         
         # ارسال به تلگرام برای سیگنال‌های قوی
-        if result.get("signal") != "HOLD" and result.get("confidence", 0) > 0.7:
+        if result.get("signal") != "HOLD" and result.get("confidence", 0) > 0.6:
             try:
+                targets = result.get("targets", [])
+                sl = result.get("stop_loss", 0)
+                entry_price = result.get("entry_price", 0)
+                
+                # فرمت کردن متن برای نمایش ۳ تارگت
+                target_text = ""
+                if targets and len(targets) >= 3:
+                    # آیکون‌ها و برچسب‌ها
+                    icons = ["🎯", "🚀", "💎"]
+                    labels = ["T1 (Safe)", "T2 (Liq)", "T3 (SMC)"]
+                    
+                    for i in range(min(3, len(targets))):
+                        icon = icons[i] if i < len(icons) else "📍"
+                        label = labels[i] if i < len(labels) else f"T{i+1}"
+                        target_value = targets[i]
+                        
+                        # محاسبه درصد سود نسبت به ورود
+                        if entry_price > 0:
+                            profit_pct = ((target_value - entry_price) / entry_price) * 100
+                            target_text += f"{icon} <b>{label}:</b> <code>{target_value:.5f}</code> ({profit_pct:+.2f}%)\n"
+                        else:
+                            target_text += f"{icon} <b>{label}:</b> <code>{target_value:.5f}</code>\n"
+                
+                # محاسبه ریسک به ریوارد اگر تارگت و استاپ وجود دارد
+                rr_text = ""
+                if entry_price > 0 and sl > 0 and targets and len(targets) > 0:
+                    risk = abs(entry_price - sl)
+                    if risk > 0:
+                        avg_target = sum(targets[:min(3, len(targets))]) / min(3, len(targets))
+                        reward = abs(avg_target - entry_price)
+                        rr_ratio = reward / risk if risk > 0 else 0
+                        rr_text = f"📊 R/R: 1:{rr_ratio:.1f}\n"
+                
                 telegram_msg = f"""
-🔔 <b>سیگنال {request.symbol}</b>
-🎯 {result.get('signal')} | اطمینان: {result.get('confidence', 0)*100:.1f}%
-💰 قیمت: {result.get('current_price', 0):,.2f}$
-⏰ TF: {request.timeframe}
+🔔 <b>سیگنال جدید: {request.symbol}</b>
+📈 جهت: <b>{result.get('signal')}</b>
+💰 ورود: <code>{entry_price:.5f}</code>
+🛑 استاپ: <code>{sl:.5f}</code>
 
+{target_text}
+{rr_text}📈 اطمینان: {result.get('confidence', 0)*100:.1f}%
 💡 {result.get('momentum_message', '')}
+⏰ تایم‌فریم: {request.timeframe}
 🔄 @AsemanSignals
                 """
                 send_telegram_auto(telegram_msg.strip())
-            except:
-                pass
+                
+                logger.info(f"📤 Telegram alert sent for {request.symbol}")
+                
+            except Exception as telegram_error:
+                logger.error(f"❌ Telegram alert failed: {telegram_error}")
         
         return result
         
@@ -436,9 +522,75 @@ async def analyze(request: ScalpRequest):
             detail=f"خطای تحلیل: {str(e)[:80]}"
         )
 
+@app.post("/v1/signal-details")
+async def get_signal_details(request: ScalpRequest):
+    """دریافت جزئیات کامل سیگنال با تارگت‌های فرمت شده"""
+    result = await analyze(request)
+    
+    if result.get("signal") == "HOLD":
+        return result
+    
+    # محاسبه ریسک به ریوارد
+    risk_reward = None
+    entry_price = result.get("entry_price", 0)
+    sl = result.get("stop_loss", 0)
+    targets = result.get("targets", [])
+    
+    if entry_price > 0 and sl > 0 and targets:
+        risk = abs(entry_price - sl)
+        if risk > 0:
+            avg_target = sum(targets[:min(3, len(targets))]) / min(3, len(targets))
+            reward = abs(avg_target - entry_price)
+            risk_reward = round(reward / risk, 2)
+    
+    # ساخت ساختار نمایش تارگت‌ها
+    targets_display = []
+    for i in range(3):
+        if i < len(targets):
+            target = targets[i]
+            profit_pct = ((target - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+            
+            targets_display.append({
+                "target": target,
+                "formatted": f"{target:.2f}" if target >= 1 else f"{target:.5f}",
+                "profit_percent": round(profit_pct, 2),
+                "icon": ["🎯", "🚀", "💎"][i],
+                "label": ["Target 1 (Safe)", "Target 2 (Liquidity)", "Target 3 (SMC)"][i]
+            })
+        else:
+            targets_display.append({
+                "target": 0,
+                "formatted": "N/A",
+                "profit_percent": 0,
+                "icon": ["🎯", "🚀", "💎"][i],
+                "label": ["Target 1 (Safe)", "Target 2 (Liquidity)", "Target 3 (SMC)"][i]
+            })
+    
+    # اضافه کردن اطلاعات فرمت شده به نتیجه
+    result.update({
+        "risk_reward": risk_reward,
+        "targets_display": targets_display,
+        "summary": {
+            "symbol": request.symbol,
+            "timeframe": request.timeframe,
+            "signal": result.get('signal'),
+            "confidence": f"{result.get('confidence', 0)*100:.1f}%",
+            "entry_price": result.get('entry_price'),
+            "stop_loss": result.get('stop_loss'),
+            "risk_reward": f"1:{risk_reward}" if risk_reward else "N/A"
+        }
+    })
+    
+    return result
+
 @app.post("/v1/analyze")
 async def analyze_pair(request: ScalpRequest):
     """Endpoint سازگاری"""
+    return await analyze(request)
+
+@app.post("/scalp-signal")
+async def get_scalp_signal(request: ScalpRequest):
+    """Legacy endpoint for backward compatibility"""
     return await analyze(request)
 
 @app.get("/v1/market-scan")
@@ -453,7 +605,7 @@ async def market_scanner():
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
         
-        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
         results = []
         
         for symbol in symbols:
@@ -461,16 +613,35 @@ async def market_scanner():
                 data = get_market_data_with_fallback(symbol, "1h", 50)
                 if data and len(data) >= 20:
                     result = get_enhanced_scalp_signal(data, symbol, "1h")
-                    if result:
+                    if result and result.get("signal") != "HOLD":
                         results.append({
                             "symbol": symbol,
                             "signal": result.get("signal", "HOLD"),
                             "confidence": result.get("confidence", 0),
-                            "price": result.get("current_price", 0)
+                            "price": result.get("current_price", 0),
+                            "targets": result.get("targets", [])[:3]
                         })
             except Exception as e:
                 logger.debug(f"Scan error for {symbol}: {e}")
                 continue
+        
+        # ارسال بهترین سیگنال به تلگرام
+        if results:
+            best_signal = max(results, key=lambda x: x.get("confidence", 0))
+            if best_signal.get("confidence", 0) > 0.7:
+                try:
+                    scan_msg = f"""
+📊 <b>اسکن بازار آسمان</b>
+🏆 بهترین سیگنال: {best_signal['symbol']}
+🎯 جهت: {best_signal['signal']}
+📈 اطمینان: {best_signal['confidence']*100:.1f}%
+💰 قیمت: {best_signal['price']:,.2f}$
+
+🔄 @AsemanSignals
+                    """
+                    send_telegram_auto(scan_msg.strip())
+                except:
+                    pass
         
         return {
             "status": "success",
@@ -536,9 +707,276 @@ async def get_performance_stats():
             "btc_price": price_cache['btc']['price'],
             "age_minutes": round((time.time() - price_cache['btc']['timestamp']) / 60, 1)
         },
+        "modules": {
+            "utils": UTILS_AVAILABLE,
+            "pandas": HAS_PANDAS,
+            "pandas_ta": HAS_PANDAS_TA,
+            "scalper_engine": COLLECTORS_AVAILABLE
+        },
         "memory_mb": round(os.sys.getsizeof({}) / 1024 / 1024, 2),
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+# ==============================================================================
+# HTML ENDPOINT برای نمایش زیبا
+# ==============================================================================
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/v1/signal-html/{symbol}")
+async def get_signal_html(symbol: str, timeframe: str = "5m"):
+    """دریافت سیگنال به فرمت HTML برای نمایش در وب"""
+    
+    # دریافت سیگنال
+    request = ScalpRequest(symbol=symbol, timeframe=timeframe)
+    result = await analyze(request)
+    
+    if result.get("signal") == "HOLD":
+        html_content = f"""
+        <div class="signal-card hold">
+            <h3>📊 {symbol} - {timeframe}</h3>
+            <p class="hold-text">⏸️ حالت انتظار - فعلاً سیگنالی وجود ندارد</p>
+        </div>
+        """
+    else:
+        targets = result.get("targets", [])
+        entry = result.get("entry_price", 0)
+        sl = result.get("stop_loss", 0)
+        
+        # ساخت HTML برای تارگت‌ها
+        targets_html = ""
+        if targets:
+            for i in range(min(3, len(targets))):
+                target = targets[i]
+                icon = ["🎯", "🚀", "💎"][i]
+                label = ["تارگت ۱ (ایمن)", "تارگت ۲ (نقدینگی)", "تارگت ۳ (SMC)"][i]
+                
+                if entry > 0:
+                    profit = ((target - entry) / entry) * 100
+                    profit_class = "profit-positive" if profit > 0 else "profit-negative"
+                    profit_text = f"<span class='{profit_class}'>({profit:+.2f}%)</span>"
+                else:
+                    profit_text = ""
+                
+                targets_html += f"""
+                <div class="target-row">
+                    <span class="target-icon">{icon}</span>
+                    <span class="target-label">{label}:</span>
+                    <span class="target-value">{target:.5f}</span>
+                    {profit_text}
+                </div>
+                """
+        
+        html_content = f"""
+        <div class="signal-card {result.get('signal', '').lower()}">
+            <h3>🔔 سیگنال {symbol} - {timeframe}</h3>
+            <div class="signal-header">
+                <span class="signal-direction">{result.get('signal')}</span>
+                <span class="confidence">{result.get('confidence', 0)*100:.1f}% اطمینان</span>
+            </div>
+            
+            <div class="price-info">
+                <div class="price-row">
+                    <span>💰 قیمت ورود:</span>
+                    <span class="price-value">{entry:.5f}</span>
+                </div>
+                <div class="price-row">
+                    <span>🛑 استاپ لاس:</span>
+                    <span class="price-value">{sl:.5f}</span>
+                </div>
+            </div>
+            
+            <div class="targets-section">
+                <h4>🎯 تارگت‌ها:</h4>
+                {targets_html}
+            </div>
+            
+            <div class="message">
+                <p>💡 {result.get('momentum_message', '')}</p>
+            </div>
+            
+            <div class="footer">
+                <span class="timestamp">{result.get('timestamp', '')}</span>
+                <span class="badge">@AsemanSignals</span>
+            </div>
+        </div>
+        """
+    
+    # استایل CSS
+    style = """
+    <style>
+    .signal-card {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 15px;
+        padding: 20px;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        max-width: 400px;
+        margin: 20px auto;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        border: 1px solid #2d3748;
+    }
+    
+    .signal-card.buy {
+        border-left: 5px solid #10b981;
+    }
+    
+    .signal-card.sell {
+        border-left: 5px solid #ef4444;
+    }
+    
+    .signal-card.hold {
+        border-left: 5px solid #f59e0b;
+    }
+    
+    .signal-card h3 {
+        margin: 0 0 15px 0;
+        color: #e2e8f0;
+        font-size: 18px;
+    }
+    
+    .signal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #2d3748;
+    }
+    
+    .signal-direction {
+        font-size: 20px;
+        font-weight: bold;
+        padding: 5px 15px;
+        border-radius: 25px;
+    }
+    
+    .signal-card.buy .signal-direction {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+    }
+    
+    .signal-card.sell .signal-direction {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+    
+    .confidence {
+        background: rgba(59, 130, 246, 0.2);
+        color: #3b82f6;
+        padding: 5px 10px;
+        border-radius: 10px;
+        font-size: 14px;
+    }
+    
+    .price-info {
+        margin-bottom: 20px;
+    }
+    
+    .price-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        padding: 8px 0;
+        border-bottom: 1px dashed #4a5568;
+    }
+    
+    .price-value {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #fbbf24;
+    }
+    
+    .targets-section {
+        background: rgba(0,0,0,0.2);
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .targets-section h4 {
+        margin-top: 0;
+        color: #cbd5e0;
+        font-size: 16px;
+    }
+    
+    .target-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 8px;
+    }
+    
+    .target-icon {
+        margin-right: 10px;
+        font-size: 18px;
+    }
+    
+    .target-label {
+        flex-grow: 1;
+        color: #a0aec0;
+    }
+    
+    .target-value {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #fbbf24;
+        margin-right: 10px;
+    }
+    
+    .profit-positive {
+        color: #10b981;
+        font-weight: bold;
+    }
+    
+    .profit-negative {
+        color: #ef4444;
+        font-weight: bold;
+    }
+    
+    .message {
+        background: rgba(59, 130, 246, 0.1);
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        border-right: 3px solid #3b82f6;
+    }
+    
+    .message p {
+        margin: 0;
+        color: #cbd5e0;
+        line-height: 1.5;
+    }
+    
+    .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 15px;
+        border-top: 1px solid #2d3748;
+        font-size: 12px;
+        color: #718096;
+    }
+    
+    .badge {
+        background: rgba(139, 92, 246, 0.2);
+        color: #8b5cf6;
+        padding: 4px 10px;
+        border-radius: 5px;
+    }
+    
+    .hold-text {
+        text-align: center;
+        padding: 30px;
+        color: #f59e0b;
+        font-size: 16px;
+    }
+    </style>
+    """
+    
+    return HTMLResponse(content=style + html_content)
 
 # ==============================================================================
 # MIDDLEWARE
@@ -551,6 +989,7 @@ async def add_process_time_header(request, call_next):
     process_time = time.time() - start_time
     performance_monitor.record_request(process_time)
     response.headers["X-Process-Time"] = str(round(process_time * 1000, 2))
+    response.headers["X-API-Version"] = API_VERSION
     return response
 
 # ==============================================================================
@@ -601,6 +1040,7 @@ async def startup_event():
     print(f"API Docs:      /docs")
     print(f"Health:        /health")
     print(f"Analyze:       POST /analyze")
+    print(f"Signal HTML:   GET /v1/signal-html/BTCUSDT")
     print(f"Golden Hours:  Tue-Thu 10-12 & 17-19 Tehran")
     print(f"{'='*60}\n")
     
@@ -616,8 +1056,8 @@ async def startup_event():
 🔄 @AsemanSignals
         """
         send_telegram_auto(start_msg.strip())
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"❌ Startup telegram error: {e}")
     
     logger.info("✅ Startup completed")
 
