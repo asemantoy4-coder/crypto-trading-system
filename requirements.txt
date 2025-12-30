@@ -8,3 +8,4 @@ requests
 numpy
 apscheduler
 pytz
+ccxt
