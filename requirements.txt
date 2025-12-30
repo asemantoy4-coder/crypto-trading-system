@@ -6,3 +6,5 @@ pandas_ta
 yfinance
 requests
 numpy
+apscheduler
+pytz
