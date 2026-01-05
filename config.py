@@ -31,3 +31,9 @@ TIMEZONE = "Asia/Tehran"
 # --- کلیدهای صرافی (اختیاری) ---
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+
+# در بخش کلاس SystemConfig
+MULTI_STRATEGY_SCAN_INTERVAL = 120  # تغییر به دقیقه برای راحتی کار با schedule
+
+# در بخش run_scheduler
+schedule.every(SystemConfig.MULTI_STRATEGY_SCAN_INTERVAL).minutes.do(multi_strategy_job)
