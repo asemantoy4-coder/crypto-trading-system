@@ -872,16 +872,22 @@ def tradingview_webhook():
 
 # ۹. شروع برنامه
 if __name__ == "__main__":
-    # بارگذاری تاریخچه
+    # ۱. بارگذاری تاریخچه
     load_signal_history()
     
-    # اجرای ترد زمان‌بندی
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
+    # ۲. اجرای مانیتورینگ قیمت (چک کردن TP/SL) در ترد جداگانه
+    threading.Thread(target=check_targets, daemon=True).start()
     
-    # اجرای ترد پایش قیمت
-    monitor_thread = threading.Thread(target=check_targets, daemon=True)
-    monitor_thread.start()
+    # ۳. اجرای زمان‌بند (اسکن‌های دوره‌ای) در ترد جداگانه
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    
+    # ۴. اجرای یک اسکن اولیه بلافاصله پس از شروع (اختیاری اما توصیه شده)
+    threading.Thread(target=multi_strategy_job, daemon=True).start()
+    
+    print(f"🚀 Master Bot Started on Port {port}")
+    
+    # ۵. اجرای سرور Flask روی ترد اصلی
+    app.run(host='0.0.0.0', port=port)
     
     # اطلاعات راه‌اندازی
     print("\n" + "="*60)
