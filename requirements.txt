@@ -1,0 +1,13 @@
+python-dotenv
+flask
+pandas
+pandas_ta
+ccxt
+numpy
+requests
+gunicorn
+schedule
+telebot
+pytz
+yfinance
+ta
