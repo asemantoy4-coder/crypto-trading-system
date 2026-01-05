@@ -862,33 +862,38 @@ def tradingview_webhook():
             f"⏰ Time: {get_iran_time().strftime('%H:%M:%S')}"
         )
         
-        utils.send_telegram_notification(msg, side)
-        print(f"✅ وب‌هوک تریدینگ‌ویو برای {symbol} پردازش و ارسال شد.")
-        return jsonify({"status": "success"}), 200
-        
-    except Exception as e:
-        print(f"❌ خطا در پردازش وب‌هوک: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+                "status": "success",
+                "message": "Settings updated successfully",
+                "new_settings": data
+            })
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
 
-# ۹. شروع برنامه
+# ۹. بخش اصلی اجرا (بسیار مهم برای Render)
 if __name__ == "__main__":
-    # ۱. بارگذاری تاریخچه
+    # ۱. بارگذاری تاریخچه از فایل
     load_signal_history()
     
-    # ۲. اجرای مانیتورینگ قیمت (چک کردن TP/SL) در ترد جداگانه
-    threading.Thread(target=check_targets, daemon=True).start()
+    # ۲. ایجاد و اجرای ترد مانیتورینگ قیمت (TP/SL)
+    monitor_thread = threading.Thread(target=check_targets, daemon=True)
+    monitor_thread.start()
     
-    # ۳. اجرای زمان‌بند (اسکن‌های دوره‌ای) در ترد جداگانه
-    threading.Thread(target=run_scheduler, daemon=True).start()
+    # ۳. ایجاد و اجرای ترد زمان‌بند (اسکن‌های دوره‌ای)
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
     
-    # ۴. اجرای یک اسکن اولیه بلافاصله پس از شروع (اختیاری اما توصیه شده)
+    # ۴. اجرای یک اسکن اولیه بلافاصله پس از شروع ربات (اختیاری)
+    # این کار باعث می‌شود به محض روشن شدن ربات، بازار اسکن شود و منتظر ۲ ساعت نمانید
     threading.Thread(target=multi_strategy_job, daemon=True).start()
     
-    print(f"🚀 Master Bot Started on Port {port}")
-    
-    # ۵. اجرای سرور Flask روی ترد اصلی
+    print(f"✅ Bot is running...")
+    print(f"🌐 Flask Server on Port: {port}")
+    print(f"🕒 System Start Time (Tehran): {SYSTEM_START_TIME}")
+
+    # ۵. اجرای سرور Flask (این خط باید آخرین خط باشد و ترد اصلی را نگه دارد)
     app.run(host='0.0.0.0', port=port)
-    
+
     # اطلاعات راه‌اندازی
     print("\n" + "="*60)
     print("🚀 Crypto Trading Bot v3.0 - Multi Strategy")
