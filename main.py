@@ -864,34 +864,35 @@ def tradingview_webhook():
         
         return jsonify({
                 "status": "success",
-                "message": "Settings updated successfully",
+                "message": "تنظیمات به‌روز شد",
                 "new_settings": data
             })
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
 
-# ۹. بخش اصلی اجرا (بسیار مهم برای Render)
+# ۹. نقطه شروع اجرای برنامه (Entry Point)
 if __name__ == "__main__":
-    # ۱. بارگذاری تاریخچه از فایل
+    # الف. بارگذاری تاریخچه از فایل
     load_signal_history()
     
-    # ۲. ایجاد و اجرای ترد مانیتورینگ قیمت (TP/SL)
-    monitor_thread = threading.Thread(target=check_targets, daemon=True)
-    monitor_thread.start()
+    # ب. راه‌اندازی رشته‌های موازی (Threads)
     
-    # ۳. ایجاد و اجرای ترد زمان‌بند (اسکن‌های دوره‌ای)
+    # ۱. رشته مانیتورینگ تارگت‌ها و استاپ‌لاس (Check Targets)
+    target_thread = threading.Thread(target=check_targets, daemon=True)
+    target_thread.start()
+    
+    # ۲. رشته زمان‌بندی تحلیل‌های ساعتی و اسکنر (Scheduler)
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    # ۴. اجرای یک اسکن اولیه بلافاصله پس از شروع ربات (اختیاری)
-    # این کار باعث می‌شود به محض روشن شدن ربات، بازار اسکن شود و منتظر ۲ ساعت نمانید
-    threading.Thread(target=multi_strategy_job, daemon=True).start()
-    
-    print(f"✅ Bot is running...")
-    print(f"🌐 Flask Server on Port: {port}")
-    print(f"🕒 System Start Time (Tehran): {SYSTEM_START_TIME}")
+    # ۳. رشته اسکن اولیه (اختیاری - برای اینکه بلافاصله بعد از روشن شدن یک اسکن انجام دهد)
+    # threading.Thread(target=hourly_job, daemon=True).start()
 
-    # ۵. اجرای سرور Flask (این خط باید آخرین خط باشد و ترد اصلی را نگه دارد)
+    print(f"🚀 ربات ترید با موفقیت در پورت {port} راه‌اندازی شد")
+    print(f"⏰ زمان شروع سیستم (تهران): {SYSTEM_START_TIME.strftime('%H:%M:%S')}")
+
+    # ج. اجرای سرور Flask (رشته اصلی)
+    # استفاده از 0.0.0.0 برای دسترسی خارجی در Render ضروری است
     app.run(host='0.0.0.0', port=port)
 
     # اطلاعات راه‌اندازی
