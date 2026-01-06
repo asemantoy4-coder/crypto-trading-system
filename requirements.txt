@@ -1,7 +1,7 @@
 flask
-gunicorn>=21.2.0
-pandas>=2.1.4,<2.2.0
-numpy>=1.23.5,<2.0.0
+gunicorn
+pandas<2.2.0
+numpy<2.0.0
 ccxt
 requests
 schedule
@@ -10,5 +10,4 @@ python-dotenv
 yfinance
 ta
 matplotlib
-# نصب مستقیم و صحیح pandas-ta از سورس اصلی
-pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@main
+pandas_ta
