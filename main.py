@@ -565,7 +565,7 @@ def home():
         "status": "online",
         "name": "Crypto Trading Bot",
         "version": "3.0",
-        "iran_time": get_iran_time().strftime('%Y-%m-d %H:%M:%S'),
+        "iran_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S'),  # اصلاح شد: %Y-%m-%d
         "active_signals": len(ACTIVE_SIGNALS),
         "strategies": {
             "scalp": "فعال",
