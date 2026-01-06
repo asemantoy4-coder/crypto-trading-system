@@ -195,30 +195,26 @@ def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
     تشخیص رژیم بازار با فیلترهای اسکالپ
     شامل بررسی SMA، ATR و نوسان‌پذیری
     """
-high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
-        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
-        # جلوگیری از تقسیم بر صفر
-        df_close = df['Close'].replace(0, np.nan) 
-        atr_percent = (atr / df_close) * 100
-        current_atr_pct = atr_percent.iloc[-1] if not np.isnan(atr_percent.iloc[-1]) else 0
-        # 2. محاسبه ATR
+def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
+    try:
+        # 1. محاسبه نوسان‌پذیری (Volatility)
+        df['returns'] = df['Close'].pct_change()
+        current_volatility = df['returns'].rolling(window=20).std().iloc[-1]
+        
+        # 2. محاسبه ATR و درصد آن
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift())
         low_close = np.abs(df['Low'] - df['Close'].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         atr = tr.rolling(window=14).mean()
         atr_percent = (atr / df['Close']) * 100
-        current_atr_pct = atr_percent.iloc[-1]
+        current_atr_pct = atr_percent.iloc[-1] if not np.isnan(atr_percent.iloc[-1]) else 0
         
-        # 3. تشخیص روند با قدرت
+        # 3. تشخیص روند
         sma_50 = df['Close'].rolling(window=50).mean()
         sma_20 = df['Close'].rolling(window=20).mean()
         current_price = df['Close'].iloc[-1]
         
-        # قدرت روند
         price_vs_sma50 = ((current_price / sma_50.iloc[-1]) - 1) * 100 if sma_50.iloc[-1] > 0 else 0
         sma20_vs_sma50 = ((sma_20.iloc[-1] / sma_50.iloc[-1]) - 1) * 100 if sma_50.iloc[-1] > 0 else 0
         trend_strength = abs(price_vs_sma50) + abs(sma20_vs_sma50)
@@ -229,21 +225,33 @@ high_low = df['High'] - df['Low']
             direction = "BEARISH"
         else:
             direction = "SIDEWAYS"
-        
-        # 4. شرایط اسکالپ امن
+
+        # 4. منطق فیلتر اسکالپ
         scalp_safe = True
         regime = "RANGING"
         
-        if current_volatility < 0.001:
+        # اصلاح منطق شرطی
+        if pd.isna(current_volatility) or current_volatility < 0.0005:
             scalp_safe = False; regime = "DEAD_MARKET"
-        elif current_volatility > 0.02:
+        elif current_volatility > 0.015: # نوسان خیلی شدید
             scalp_safe = False; regime = "VOLATILE"
-        elif current_atr_pct > 2.0:
+        elif current_atr_pct > 1.5:
             scalp_safe = False; regime = "HIGH_VOLATILITY"
-        elif direction == "SIDEWAYS" and trend_strength < 1.0:
-            regime = "RANGING"
-        else:
+        elif direction != "SIDEWAYS" and trend_strength > 0.5:
             regime = "TRENDING"
+            
+        return {
+            "regime": regime,
+            "scalp_safe": scalp_safe,
+            "direction": direction,
+            "volatility": float(current_volatility) if not pd.isna(current_volatility) else 0,
+            "atr_percent": float(current_atr_pct),
+            "trend_strength": float(trend_strength),
+            "regime_score": calculate_regime_score(regime, scalp_safe, direction, current_atr_pct)
+        }
+    except Exception as e:
+        logger.error(f"Market Regime Error: {e}")
+        return {"regime": "ERROR", "scalp_safe": False}
         
         # 5. فیلتر حجم
         volume_filter = "NORMAL"
@@ -968,6 +976,18 @@ def format_signal_message(symbol: str, signal_data: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Format Signal Message Error: {e}")
         return f"❌ Error formatting signal for {symbol}"
+# ادامه تابع تست
+        df = pd.DataFrame(data) # فرض بر ساخت دیتافریم
+        result = generate_scalp_signals(df, test_mode=True)
+        
+        if result['valid']:
+            print(f"Test Successful! Signal: {result['signal']}")
+            send_telegram_notification(f"Bot Test Successful. Signal: {result['signal']}", "TEST")
+        else:
+            print(f"Test Failed: {result['reasons']}")
+            
+    except Exception as e:
+        logger.error(f"Testing failed: {e}")
 
 if __name__ == "__main__":
     # اجرای تست اگر فایل مستقیماً اجرا شود
