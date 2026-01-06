@@ -11,19 +11,19 @@ import utils
 import config
 import json
 from typing import Dict, List, Optional, Any
-from strategies import calculate_master_signals  # استراتژی‌های جدید
+from strategies import calculate_master_signals
 
 # ۱. راه‌اندازی اپلیکیشن Flask
 app = Flask(__name__)
 port = int(os.environ.get("PORT", 5000))
 
-# واچ‌لیست و حافظه سیگنال‌ها
+# واچ‌لیست و حافظه سیگنال‌ها - بدون تغییر
 WATCHLIST = config.WATCHLIST if hasattr(config, 'WATCHLIST') else ["BTCUSDT", "ETHUSDT"]
 ACTIVE_SIGNALS: Dict[str, Dict] = {}
 SIGNAL_HISTORY: List[Dict] = []
 SYSTEM_START_TIME = datetime.now(pytz.timezone('Asia/Tehran'))
 
-# تنظیمات سیستم
+# تنظیمات سیستم - بدون تغییر
 class SystemConfig:
     CHECK_INTERVAL = 20  # ثانیه
     MIN_SCORE = 3  # حداقل امتیاز برای سیگنال
@@ -34,10 +34,30 @@ class SystemConfig:
     MULTI_STRATEGY_SCAN_INTERVAL = 7200  # ثانیه (2 ساعت)
     TOP_COINS_LIMIT = 50  # تعداد ارزهای برتر برای اسکن
     USE_MULTI_STRATEGY = True  # فعال/غیرفعال کردن استراتژی ترکیبی
+
+# ==================== توابع کمکی بهینه شده ====================
     
 def get_iran_time() -> datetime:
-    """محاسبه زمان فعلی تهران"""
+    """محاسبه زمان فعلی تهران - بدون تغییر"""
     return datetime.now(pytz.timezone('Asia/Tehran'))
+
+def format_timestamp() -> str:
+    """فرمت زمان برای لاگ‌ها"""
+    return get_iran_time().strftime('%H:%M:%S')
+
+def log(level: str, symbol: str, message: str):
+    """سیستم لاگینگ یکپارچه"""
+    icons = {
+        'info': '📊',
+        'success': '✅',
+        'error': '❌',
+        'warning': '⚠️',
+        'time': '⏰',
+        'scan': '🔍',
+        'signal': '🚀'
+    }
+    icon = icons.get(level, '📝')
+    print(f"[{format_timestamp()}] {icon} {symbol}: {message}")
 
 def load_signal_history():
     """بارگذاری تاریخچه سیگنال‌ها از فایل"""
@@ -46,9 +66,9 @@ def load_signal_history():
         if os.path.exists('signal_history.json'):
             with open('signal_history.json', 'r') as f:
                 SIGNAL_HISTORY = json.load(f)
-                print(f"✅ تاریخچه {len(SIGNAL_HISTORY)} سیگنال بارگذاری شد")
+                log('success', 'SYSTEM', f"تاریخچه {len(SIGNAL_HISTORY)} سیگنال بارگذاری شد")
     except Exception as e:
-        print(f"❌ خطا در بارگذاری تاریخچه: {e}")
+        log('error', 'SYSTEM', f"بارگذاری تاریخچه: {e}")
 
 def save_signal_history():
     """ذخیره تاریخچه سیگنال‌ها در فایل"""
@@ -56,18 +76,22 @@ def save_signal_history():
         with open('signal_history.json', 'w') as f:
             json.dump(SIGNAL_HISTORY[-SystemConfig.MAX_HISTORY:], f, indent=2)
     except Exception as e:
-        print(f"❌ خطا در ذخیره تاریخچه: {e}")
+        log('error', 'SYSTEM', f"ذخیره تاریخچه: {e}")
 
-# ۲. بدنه اصلی تحلیل و ارسال پیام
+def is_within_trading_hours() -> bool:
+    """بررسی ساعت معاملاتی"""
+    iran_time = get_iran_time()
+    return SystemConfig.TRADING_HOURS[0] <= iran_time.hour <= SystemConfig.TRADING_HOURS[1]
+
+# ==================== ۲. بدنه اصلی تحلیل و ارسال پیام (بهینه شده) ====================
 def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
     """
     تحلیل نماد و ارسال سیگنال در صورت وجود شرایط
     """
     try:
         # بررسی زمان معاملاتی
-        iran_time = get_iran_time()
-        if not force and not (SystemConfig.TRADING_HOURS[0] <= iran_time.hour <= SystemConfig.TRADING_HOURS[1]):
-            print(f"⏰ خارج از ساعت معاملاتی ({iran_time.hour}:{iran_time.minute})")
+        if not force and not is_within_trading_hours():
+            log('time', symbol, f"خارج از ساعت معاملاتی")
             return {"status": "outside_trading_hours"}
         
         # تمیز کردن نام نماد
@@ -76,7 +100,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
         # دریافت داده از صرافی
         df = exchange_handler.DataHandler.fetch_data(clean_symbol, '5m', limit=100)
         if df is None or df.empty:
-            print(f"⚠️ داده‌ای برای {clean_symbol} دریافت نشد.")
+            log('warning', clean_symbol, "داده‌ای دریافت نشد")
             return {"status": "no_data", "symbol": clean_symbol}
         
         # تحلیل تکنیکال
@@ -84,7 +108,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
         score = analysis.get('score', 0)
         current_price = analysis.get('price', 0)
         
-        print(f"📊 تحلیل {clean_symbol}: امتیاز={score}, قیمت={current_price}")
+        log('info', clean_symbol, f"امتیاز={score}, قیمت={current_price}")
         
         # بررسی شرایط سیگنال
         if abs(score) >= SystemConfig.MIN_SCORE or force:
@@ -115,7 +139,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
                     'direction': side,
                     'risk_percentage': 0.5 if side == 'BUY' else 0.5
                 },
-                'timestamp': iran_time.isoformat(),
+                'timestamp': get_iran_time().isoformat(),
                 'status': 'ACTIVE',
                 'notifications_sent': {
                     'tp1': False,
@@ -129,7 +153,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
             # بررسی وجود سیگنال فعال برای این نماد
             if clean_symbol in ACTIVE_SIGNALS:
                 old_status = ACTIVE_SIGNALS[clean_symbol].get('status', 'UNKNOWN')
-                print(f"⚠️ سیگنال فعال قبلی برای {clean_symbol} با وضعیت {old_status}")
+                log('warning', clean_symbol, f"سیگنال فعال قبلی با وضعیت {old_status}")
                 
                 # اگر سیگنال قبلی هنوز فعال است، ارسال نکن
                 if old_status == 'ACTIVE':
@@ -160,7 +184,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
                 f"🎯 Take Profit 2: {tp2:.4f}\n"
                 f"🛑 Stop Loss: {sl:.4f}\n"
                 f"📈 Risk/Reward: 1:3\n"
-                f"⏰ Time: {iran_time.strftime('%H:%M:%S')}\n"
+                f"⏰ Time: {get_iran_time().strftime('%H:%M:%S')}\n"
                 f"📡 Channel: {config.TELEGRAM_CHAT_ID if hasattr(config, 'TELEGRAM_CHAT_ID') else 'N/A'}\n"
                 f"#{clean_symbol.replace('USDT', '')} #{side}"
             )
@@ -169,7 +193,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
             success = utils.send_telegram_notification(msg, side)
             
             if success:
-                print(f"✅ سیگنال {clean_symbol} ارسال شد. وضعیت: ACTIVE")
+                log('success', clean_symbol, "سیگنال ارسال شد. وضعیت: ACTIVE")
                 return {
                     "status": "success",
                     "symbol": clean_symbol,
@@ -181,14 +205,14 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
                     "strategy": "SCALP"
                 }
             else:
-                print(f"❌ ارسال سیگنال {clean_symbol} ناموفق بود")
+                log('error', clean_symbol, "ارسال سیگنال ناموفق بود")
                 # اگر ارسال ناموفق بود، سیگنال را حذف کن
                 if clean_symbol in ACTIVE_SIGNALS:
                     del ACTIVE_SIGNALS[clean_symbol]
                 return {"status": "telegram_error", "symbol": clean_symbol}
         
         else:
-            print(f"ℹ️ امتیاز {clean_symbol}: {score} (کمتر از حد نصاب {SystemConfig.MIN_SCORE})")
+            log('info', clean_symbol, f"امتیاز {score} (کمتر از حد نصاب {SystemConfig.MIN_SCORE})")
             return {
                 "status": "low_score",
                 "symbol": clean_symbol,
@@ -197,11 +221,10 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
             }
             
     except Exception as e:
-        error_msg = f"❌ خطا در تحلیل {symbol}: {str(e)}"
-        print(error_msg)
+        log('error', symbol, f"خطا در تحلیل: {str(e)}")
         return {"status": "error", "symbol": symbol, "error": str(e)}
 
-# ۳. تحلیل با استراتژی ترکیبی جدید
+# ==================== ۳. تحلیل با استراتژی ترکیبی جدید (بهینه شده) ====================
 def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str, Any]:
     """
     تحلیل با استراتژی ترکیبی ZLMA + RSI + FVG
@@ -212,7 +235,7 @@ def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str,
         # دریافت داده از صرافی
         df = exchange_handler.DataHandler.fetch_data(clean_symbol, timeframe, limit=100)
         if df is None or df.empty:
-            print(f"⚠️ داده‌ای برای {clean_symbol} دریافت نشد.")
+            log('warning', clean_symbol, "داده‌ای دریافت نشد")
             return {"status": "no_data", "symbol": clean_symbol}
         
         # تبدیل DataFrame به فرمت مورد نیاز استراتژی
@@ -278,7 +301,7 @@ def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str,
                 ACTIVE_SIGNALS[clean_symbol] = signal_data
                 SIGNAL_HISTORY.append(signal_data.copy())
                 
-                print(f"✅ سیگنال ترکیبی {clean_symbol} ارسال شد")
+                log('success', clean_symbol, "سیگنال ترکیبی ارسال شد")
                 return {
                     "status": "success",
                     "symbol": clean_symbol,
@@ -292,24 +315,23 @@ def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str,
         return {"status": "no_signal", "symbol": clean_symbol}
         
     except Exception as e:
-        error_msg = f"❌ خطا در تحلیل ترکیبی {symbol}: {str(e)}"
-        print(error_msg)
+        log('error', symbol, f"خطا در تحلیل ترکیبی: {str(e)}")
         return {"status": "error", "symbol": symbol, "error": str(e)}
 
-# ۴. اسکنر ارزهای برتر
+# ==================== ۴. اسکنر ارزهای برتر (بهینه شده) ====================
 def scan_top_coins():
     """اسکن ۵۰ ارز برتر با استراتژی ترکیبی"""
     if not SystemConfig.USE_MULTI_STRATEGY:
-        print("ℹ️ استراتژی ترکیبی غیرفعال است")
+        log('info', 'SYSTEM', "استراتژی ترکیبی غیرفعال است")
         return
     
     try:
-        print(f"🔍 شروع اسکن ارزهای برتر...")
+        log('scan', 'SYSTEM', "شروع اسکن ارزهای برتر...")
         
         # دریافت لیست ارزهای برتر
         tickers = exchange_handler.DataHandler.fetch_all_tickers()
         if not tickers:
-            print("⚠️ نتوانستیم ticker دریافت کنیم")
+            log('warning', 'SYSTEM', "نتوانستیم ticker دریافت کنیم")
             return
         
         # انتخاب ۵۰ ارز برتر بر اساس حجم معاملات
@@ -320,7 +342,7 @@ def scan_top_coins():
             reverse=True
         )[:SystemConfig.TOP_COINS_LIMIT]
         
-        print(f"📊 اسکن {len(top_symbols)} ارز برتر")
+        log('info', 'SYSTEM', f"اسکن {len(top_symbols)} ارز برتر")
         
         signals_found = 0
         for symbol, volume in top_symbols:
@@ -330,20 +352,20 @@ def scan_top_coins():
                 
                 if result.get('status') == 'success':
                     signals_found += 1
-                    print(f"✅ سیگنال پیدا شد برای {symbol}")
+                    log('success', symbol, "سیگنال پیدا شد")
                 
                 time.sleep(1)  # تاخیر برای جلوگیری از محدودیت API
                 
             except Exception as e:
-                print(f"⚠️ خطا در تحلیل {symbol}: {e}")
+                log('warning', symbol, f"خطا در تحلیل: {e}")
                 continue
         
-        print(f"📈 اسکن کامل شد. {signals_found} سیگنال پیدا شد.")
+        log('info', 'SYSTEM', f"اسکن کامل شد. {signals_found} سیگنال پیدا شد.")
         
     except Exception as e:
-        print(f"❌ خطا در اسکن ارزهای برتر: {e}")
+        log('error', 'SYSTEM', f"خطا در اسکن ارزهای برتر: {e}")
 
-# ۵. منطق بررسی تارگت‌ها و استاپ‌لاس (بدون تغییر)
+# ==================== ۵. منطق بررسی تارگت‌ها و استاپ‌لاس (کاملاً بدون تغییر) ====================
 def check_active_signals(symbol: str, current_price: float, signal_data: Dict) -> str:
     """
     بررسی اینکه آیا قیمت به تارگت‌ها یا استاپ‌لاس رسیده است
@@ -381,7 +403,7 @@ def check_active_signals(symbol: str, current_price: float, signal_data: Dict) -
             # فعال‌سازی ریسک‌فری
             if SystemConfig.RISK_FREE_ENABLED:
                 signal_data['exit_levels']['stop_loss'] = signal_data['entry']
-                print(f"🛡️ ریسک‌فری فعال شد برای {symbol} - استاپ به نقطه ورود منتقل شد")
+                log('info', symbol, "ریسک‌فری فعال شد - استاپ به نقطه ورود منتقل شد")
             
         # بررسی Stop Loss
         elif not signal_data['notifications_sent']['sl'] and current_price <= levels['stop_loss']:
@@ -406,7 +428,7 @@ def check_active_signals(symbol: str, current_price: float, signal_data: Dict) -
             # فعال‌سازی ریسک‌فری
             if SystemConfig.RISK_FREE_ENABLED:
                 signal_data['exit_levels']['stop_loss'] = signal_data['entry']
-                print(f"🛡️ ریسک‌فری فعال شد برای {symbol} - استاپ به نقطه ورود منتقل شد")
+                log('info', symbol, "ریسک‌فری فعال شد - استاپ به نقطه ورود منتقل شد")
             
         # بررسی Stop Loss
         elif not signal_data['notifications_sent']['sl'] and current_price >= levels['stop_loss']:
@@ -461,7 +483,7 @@ def close_signal(symbol: str, close_price: float, signal_data: Dict, profit_pct:
     signal_data['final_profit_pct'] = profit_pct
     signal_data['duration'] = calculate_duration(signal_data['timestamp'])
     
-    print(f"📋 سیگنال {symbol} بسته شد. سود: {profit_pct:.2f}%")
+    log('info', symbol, f"سیگنال بسته شد. سود: {profit_pct:.2f}%")
     
     # حذف از لیست فعال
     if symbol in ACTIVE_SIGNALS:
@@ -483,7 +505,7 @@ def calculate_duration(timestamp: str) -> str:
     except:
         return "N/A"
 
-# ۶. پایش لحظه‌ای قیمت‌ها
+# ==================== ۶. پایش لحظه‌ای قیمت‌ها (بهینه شده) ====================
 def check_targets():
     """مانیتورینگ لحظه‌ای قیمت برای سیگنال‌های فعال"""
     last_status_log = time.time()
@@ -495,12 +517,12 @@ def check_targets():
             if not symbols_to_check:
                 # لاگ وضعیت هر 5 دقیقه
                 if time.time() - last_status_log > 300:
-                    print(f"📊 سیستم فعال - هیچ سیگنال فعالی وجود ندارد. زمان: {get_iran_time().strftime('%H:%M:%S')}")
+                    log('info', 'SYSTEM', f"هیچ سیگنال فعالی وجود ندارد")
                     last_status_log = time.time()
                 time.sleep(SystemConfig.CHECK_INTERVAL)
                 continue
             
-            print(f"🔍 مانیتورینگ {len(symbols_to_check)} سیگنال فعال...")
+            log('info', 'SYSTEM', f"مانیتورینگ {len(symbols_to_check)} سیگنال فعال...")
             
             for symbol in symbols_to_check:
                 if symbol not in ACTIVE_SIGNALS:
@@ -509,7 +531,7 @@ def check_targets():
                 # دریافت قیمت لحظه‌ای
                 ticker = exchange_handler.DataHandler.fetch_ticker(symbol)
                 if not ticker:
-                    print(f"⚠️ دریافت قیمت برای {symbol} ناموفق بود")
+                    log('warning', symbol, "دریافت قیمت ناموفق بود")
                     continue
                 
                 price = ticker.get('last', 0)
@@ -524,7 +546,7 @@ def check_targets():
                 # نمایش وضعیت لحظه‌ای
                 if status == "ACTIVE" and time.time() - last_status_log > 300:
                     levels = signal_data['exit_levels']
-                    print(f"📊 {symbol}: {price:.4f} | TP1: {levels['tp1']:.4f} | TP2: {levels['tp2']:.4f} | SL: {levels['stop_loss']:.4f}")
+                    log('info', symbol, f"{price:.4f} | TP1: {levels['tp1']:.4f} | TP2: {levels['tp2']:.4f} | SL: {levels['stop_loss']:.4f}")
             
             if time.time() - last_status_log > 300:
                 last_status_log = time.time()
@@ -532,31 +554,24 @@ def check_targets():
             time.sleep(SystemConfig.CHECK_INTERVAL)
             
         except Exception as e:
-            print(f"❌ خطا در مانیتورینگ: {e}")
+            log('error', 'MONITOR', f"خطا در مانیتورینگ: {e}")
             time.sleep(30)
-            
-# ۷. زمان‌بندی (نسخه اصلاح شده)
-def run_scheduler():
-    import schedule  # وارد کردن کتابخانه برای اطمینان از رفع خطا
-    
-    # دریافت فاصله زمانی از فایل config شما (۱۲۰ دقیقه)
-    interval = config.MULTI_STRATEGY_SCAN_INTERVAL_MINUTES
-    
-    # ۱. زمان‌بندی اجرای اسکنر استراتژی ترکیبی (هر ۱۲۰ دقیقه)
-    schedule.every(interval).minutes.do(multi_strategy_job)
-    
-    # ۲. زمان‌بندی تحلیل ساعتی واچ‌لیست (سر هر ساعت)
-    schedule.every().hour.at(":00").do(hourly_job)
-    
-    print(f"⏰ زمان‌بند فعال شد: اسکنر هر {interval} دقیقه | تحلیل ساعتی فعال")
-    
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+
+# ==================== ۷. زمان‌بندی (بهینه شده) ====================
+def hourly_job():
+    """اجرای تحلیل ساعتی"""
+    if is_within_trading_hours():
+        log('info', 'SCHEDULER', "شروع تحلیل ساعتی")
+        
+        for symbol in WATCHLIST:
+            analyze_and_broadcast(symbol, force=False)
+            time.sleep(2)
+    else:
+        log('time', 'SCHEDULER', "خارج از ساعت معاملاتی - تحلیل انجام نمی‌شود")
 
 def multi_strategy_job():
     """اجرای اسکنر استراتژی ترکیبی"""
-    print(f"🚀 شروع اسکنر استراتژی ترکیبی - {get_iran_time().strftime('%H:%M:%S')}")
+    log('signal', 'SCHEDULER', "شروع اسکنر استراتژی ترکیبی")
     scan_top_coins()
 
 def run_scheduler():
@@ -567,16 +582,13 @@ def run_scheduler():
     # اجرای اسکنر استراتژی ترکیبی هر ۲ ساعت
     schedule.every(SystemConfig.MULTI_STRATEGY_SCAN_INTERVAL).seconds.do(multi_strategy_job)
     
-    # اجرای تست هر ۱۵ دقیقه (برای توسعه)
-    # schedule.every(15).minutes.do(lambda: print(f"🧪 تست زمان‌بند - {get_iran_time().strftime('%H:%M:%S')}"))
-    
-    print("⏰ زمان‌بند راه‌اندازی شد")
+    log('success', 'SCHEDULER', "زمان‌بند راه‌اندازی شد")
     
     while True:
         schedule.run_pending()
         time.sleep(30)
 
-# ۸. مسیرهای وب (Routes) - با اضافه شدن امکانات جدید
+# ==================== ۸. مسیرهای وب (Routes) - بدون تغییر ====================
 @app.route('/')
 def home():
     """صفحه اصلی"""
@@ -670,7 +682,7 @@ def force_analyze():
     # استفاده از واچ‌لیست کانفیگ
     watchlist = WATCHLIST
     
-    print(f"🚀 شروع تحلیل اجباری {len(watchlist)} نماد")
+    log('signal', 'SYSTEM', f"شروع تحلیل اجباری {len(watchlist)} نماد")
     
     for symbol in watchlist:
         try:
@@ -881,22 +893,52 @@ def tradingview_webhook():
             }), 500
             
     except Exception as e:
-            return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"status": "error", "message": str(e)}), 400
 
-# ==================== بخش پایانی و استارت سیستم ====================
+# ==================== نقطه شروع اجرای برنامه ====================
 if __name__ == "__main__":
-    # ۱. بارگذاری تاریخچه
+    # الف. بارگذاری تاریخچه از فایل
     load_signal_history()
     
-    # ۲. اجرای ترد مانیتورینگ قیمت (بسیار مهم برای TP/SL)
-    monitor_thread = threading.Thread(target=check_targets, daemon=True)
-    monitor_thread.start()
+    # ب. راه‌اندازی رشته‌های موازی (Threads)
     
-    # ۳. اجرای ترد زمان‌بندی (برای اجرای اسکنر ۱۲۰ دقیقه‌ای)
-    schedule_thread = threading.Thread(target=run_scheduler, daemon=True)
-    schedule_thread.start()
+    # ۱. رشته مانیتورینگ تارگت‌ها و استاپ‌لاس (Check Targets)
+    target_thread = threading.Thread(target=check_targets, daemon=True)
+    target_thread.start()
     
-    # ۴. اجرای وب‌سرور Flask (این بخش باعث زنده ماندن ربات در Render می‌شود)
-    # Render به متغیر PORT نیاز دارد که در ابتدای کد تعریف کردیم
-    print(f"🚀 وب‌سرور با موفقیت روی پورت {port} فعال شد.")
-    app.run(host='0.0.0.0', port=port)
+    # ۲. رشته زمان‌بندی تحلیل‌های ساعتی و اسکنر (Scheduler)
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    
+    # ۳. رشته اسکن اولیه (اختیاری - برای اینکه بلافاصله بعد از روشن شدن یک اسکن انجام دهد)
+    # threading.Thread(target=hourly_job, daemon=True).start()
+
+    log('success', 'SYSTEM', f"ربات ترید با موفقیت در پورت {port} راه‌اندازی شد")
+    log('info', 'SYSTEM', f"زمان شروع سیستم: {SYSTEM_START_TIME.strftime('%H:%M:%S')}")
+
+    # اطلاعات راه‌اندازی
+    print("\n" + "="*60)
+    print("🚀 Crypto Trading Bot v3.0 - Multi Strategy (Optimized)")
+    print("="*60)
+    print(f"📅 تاریخ: {get_iran_time().strftime('%Y-%m-%d')}")
+    print(f"⏰ ساعت: {get_iran_time().strftime('%H:%M:%S')}")
+    print(f"📊 واچ‌لیست: {', '.join(WATCHLIST)}")
+    print(f"📈 استراتژی‌ها: SCALP {'✅' if True else '❌'} | MULTI {'✅' if SystemConfig.USE_MULTI_STRATEGY else '❌'}")
+    print(f"⚙️ ساعت معاملاتی: {SystemConfig.TRADING_HOURS[0]}:00 - {SystemConfig.TRADING_HOURS[1]}:00")
+    print(f"📈 حداقل امتیاز سیگنال: {SystemConfig.MIN_SCORE}")
+    print(f"🔄 فاصله بررسی: هر {SystemConfig.CHECK_INTERVAL} ثانیه")
+    print(f"🔍 اسکنر ترکیبی: هر {SystemConfig.MULTI_STRATEGY_SCAN_INTERVAL//3600} ساعت")
+    print("="*60)
+    
+    # ذخیره خودکار تاریخچه هنگام خروج
+    import atexit
+    atexit.register(save_signal_history)
+    atexit.register(lambda: log('info', 'SYSTEM', "سیستم در حال خاموش شدن..."))
+    
+    print(f"🌐 سرور در حال راه‌اندازی روی پورت {port}...")
+    print(f"📊 API در دسترس: http://localhost:{port}")
+    print("="*60 + "\n")
+    
+    # ج. اجرای سرور Flask (رشته اصلی)
+    # استفاده از 0.0.0.0 برای دسترسی خارجی در Render ضروری است
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
