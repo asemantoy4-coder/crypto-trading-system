@@ -883,17 +883,20 @@ def tradingview_webhook():
     except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
 
-# ==================== STARTUP ====================
+# ==================== بخش پایانی و استارت سیستم ====================
 if __name__ == "__main__":
-    # ۱. بارگذاری تاریخچه سیگنال‌ها
+    # ۱. بارگذاری تاریخچه
     load_signal_history()
     
-    # ۲. راه‌اندازی ترد مانیتورینگ (چک کردن لحظه‌ای قیمت برای TP/SL)
-    threading.Thread(target=check_targets, daemon=True).start()
+    # ۲. اجرای ترد مانیتورینگ قیمت (بسیار مهم برای TP/SL)
+    monitor_thread = threading.Thread(target=check_targets, daemon=True)
+    monitor_thread.start()
     
-    # ۳. راه‌اندازی ترد زمان‌بندی (اجرای خودکار تحلیل‌ها و اسکنر)
-    threading.Thread(target=run_scheduler, daemon=True).start()
+    # ۳. اجرای ترد زمان‌بندی (برای اجرای اسکنر ۱۲۰ دقیقه‌ای)
+    schedule_thread = threading.Thread(target=run_scheduler, daemon=True)
+    schedule_thread.start()
     
-    # ۴. اجرای وب‌سرور برای زنده نگه داشتن ربات در Render
-    print(f"🚀 Bot is starting on port {port}...")
+    # ۴. اجرای وب‌سرور Flask (این بخش باعث زنده ماندن ربات در Render می‌شود)
+    # Render به متغیر PORT نیاز دارد که در ابتدای کد تعریف کردیم
+    print(f"🚀 وب‌سرور با موفقیت روی پورت {port} فعال شد.")
     app.run(host='0.0.0.0', port=port)
