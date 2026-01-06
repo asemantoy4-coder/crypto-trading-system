@@ -281,6 +281,22 @@ high_low = df['High'] - df['Low']
             "trend_strength": 0
         }
 
+def add_basic_indicators(df: pd.DataFrame):
+    """اضافه کردن RSI و باندهای بولینگر بدون نیاز به کتابخانه خارجی"""
+    # محاسبه RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
+    
+    # محاسبه Bollinger Bands
+    df['ma20'] = df['Close'].rolling(window=20).mean()
+    df['std20'] = df['Close'].rolling(window=20).std()
+    df['bb_high'] = df['ma20'] + (df['std20'] * 2)
+    df['bb_low'] = df['ma20'] - (df['std20'] * 2)
+    return df
+    
 def calculate_regime_score(regime: str, scalp_safe: bool, direction: str, atr_percent: float) -> float:
     """محاسبه امتیاز رژیم بازار"""
     score = 0.0
