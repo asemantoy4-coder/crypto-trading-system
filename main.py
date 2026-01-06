@@ -41,7 +41,28 @@ except ImportError:
     print("⚠️ ماژول ta یافت نشد")
     TA_AVAILABLE = False
 
-# ۳. کلاس‌های شبیه‌سازی برای زمانی که ماژول اصلی موجود نیست
+# ۳. تنظیمات سیستم - همه تنظیمات در اینجا
+WATCHLIST = os.environ.get("WATCHLIST", "BTC/USDT,ETH/USDT").split(",")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# تنظیمات سیستم
+class SystemConfig:
+    CHECK_INTERVAL = 30  # ثانیه
+    MIN_SCORE = 3  # حداقل امتیاز برای سیگنال
+    TRADING_HOURS = (0, 23)  # فعالیت شبانه‌روزی
+    MAX_HISTORY = 100  # حداکثر تاریخچه ذخیره‌شده
+    RISK_FREE_ENABLED = True  # فعال‌سازی حالت ریسک‌فری
+    MULTI_STRATEGY_SCAN_INTERVAL = 7200  # ثانیه (2 ساعت)
+    TOP_COINS_LIMIT = 50  # تعداد ارزهای برتر برای اسکن
+    USE_MULTI_STRATEGY = True  # فعال/غیرفعال کردن استراتژی ترکیبی
+
+# ۴. متغیرهای گلوبال
+ACTIVE_SIGNALS: Dict[str, Dict] = {}
+SIGNAL_HISTORY: List[Dict] = []
+SYSTEM_START_TIME = datetime.now(pytz.timezone('Asia/Tehran'))
+
+# ۵. کلاس‌های شبیه‌سازی برای زمانی که ماژول اصلی موجود نیست
 class ExchangeSimulator:
     """شبیه‌ساز صرافی برای زمانی که ccxt موجود نیست"""
     
@@ -121,26 +142,7 @@ class ExchangeSimulator:
         
         return tickers
 
-# ۴. تنظیمات سیستم
-WATCHLIST = os.environ.get("WATCHLIST", "BTC/USDT,ETH/USDT").split(",")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-ACTIVE_SIGNALS: Dict[str, Dict] = {}
-SIGNAL_HISTORY: List[Dict] = []
-SYSTEM_START_TIME = datetime.now(pytz.timezone('Asia/Tehran'))
-
-class SystemConfig:
-    CHECK_INTERVAL = 30  # ثانیه
-    MIN_SCORE = 3  # حداقل امتیاز برای سیگنال
-    TRADING_HOURS = (0, 23)  # فعالیت شبانه‌روزی
-    MAX_HISTORY = 100  # حداکثر تاریخچه ذخیره‌شده
-    RISK_FREE_ENABLED = True  # فعال‌سازی حالت ریسک‌فری
-    MULTI_STRATEGY_SCAN_INTERVAL = 7200  # ثانیه (2 ساعت)
-    TOP_COINS_LIMIT = 50  # تعداد ارزهای برتر برای اسکن
-    USE_MULTI_STRATEGY = True  # فعال/غیرفعال کردن استراتژی ترکیبی
-
-# ۵. توابع کمکی
+# ۶. توابع کمکی
 def get_iran_time() -> datetime:
     """محاسبه زمان فعلی تهران"""
     return datetime.now(pytz.timezone('Asia/Tehran'))
@@ -183,7 +185,7 @@ def save_signal_history():
     except Exception as e:
         print(f"❌ خطا در ذخیره تاریخچه: {e}")
 
-# ۶. توابع تحلیل تکنیکال
+# ۷. توابع تحلیل تکنیکال
 def calculate_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     """محاسبه اندیکاتورهای تکنیکال"""
     try:
@@ -254,7 +256,7 @@ def calculate_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         print(f"❌ خطا در محاسبه اندیکاتورها: {e}")
         return {'score': 0, 'price': df['close'].iloc[-1] if len(df) > 0 else 0}
 
-# ۷. تحلیل استراتژی ترکیبی
+# ۸. تحلیل استراتژی ترکیبی
 def calculate_multi_strategy_signals(df: pd.DataFrame) -> tuple:
     """محاسبه سیگنال‌های استراتژی ترکیبی"""
     try:
@@ -297,7 +299,7 @@ def calculate_multi_strategy_signals(df: pd.DataFrame) -> tuple:
         print(f"❌ خطا در استراتژی ترکیبی: {e}")
         return False, df['close'].iloc[-1] if len(df) > 0 else 0, 0, False
 
-# ۸. بدنه اصلی تحلیل و ارسال پیام
+# ۹. بدنه اصلی تحلیل و ارسال پیام
 def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
     """تحلیل نماد و ارسال سیگنال در صورت وجود شرایط"""
     try:
@@ -451,7 +453,7 @@ def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
         print(error_msg)
         return {"status": "error", "symbol": symbol, "error": str(e)}
 
-# ۹. تحلیل با استراتژی ترکیبی
+# ۱۰. تحلیل با استراتژی ترکیبی
 def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str, Any]:
     """تحلیل با استراتژی ترکیبی"""
     try:
@@ -555,7 +557,7 @@ def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str,
         print(error_msg)
         return {"status": "error", "symbol": symbol, "error": str(e)}
 
-# ۱۰. مسیرهای وب (Routes)
+# ۱۱. مسیرهای وب (Routes)
 @app.route('/')
 def home():
     """صفحه اصلی"""
@@ -563,7 +565,7 @@ def home():
         "status": "online",
         "name": "Crypto Trading Bot",
         "version": "3.0",
-        "iran_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S'),
+        "iran_time": get_iran_time().strftime('%Y-%m-d %H:%M:%S'),
         "active_signals": len(ACTIVE_SIGNALS),
         "strategies": {
             "scalp": "فعال",
@@ -725,7 +727,59 @@ def tradingview_webhook():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
-# ۱۱. نقطه شروع اجرای برنامه
+# ۱۲. توابع زمان‌بندی
+def hourly_job():
+    """تحلیل ساعتی"""
+    now = get_iran_time()
+    
+    if SystemConfig.TRADING_HOURS[0] <= now.hour <= SystemConfig.TRADING_HOURS[1]:
+        print(f"⏰ شروع تحلیل ساعتی ساعت {now.hour}:{now.minute:02d}")
+        
+        for symbol in WATCHLIST:
+            analyze_and_broadcast(symbol, force=False)
+            time.sleep(2)
+    
+    else:
+        print(f"⏰ خارج از ساعت معاملاتی ({now.hour}:{now.minute:02d})")
+
+def multi_strategy_job():
+    """اسکنر استراتژی ترکیبی"""
+    print(f"🚀 شروع اسکنر استراتژی ترکیبی - {get_iran_time().strftime('%H:%M:%S')}")
+    
+    if not SystemConfig.USE_MULTI_STRATEGY:
+        print("ℹ️ استراتژی ترکیبی غیرفعال است")
+        return
+    
+    try:
+        # در این نسخه ساده شده، فقط واچ‌لیست را تحلیل می‌کنیم
+        for symbol in WATCHLIST:
+            try:
+                analyze_with_multi_strategy(symbol, '1h')
+                time.sleep(1)
+            except Exception as e:
+                print(f"⚠️ خطا در تحلیل {symbol}: {e}")
+                continue
+        
+        print(f"📈 اسکن کامل شد.")
+        
+    except Exception as e:
+        print(f"❌ خطا در اسکن: {e}")
+
+def run_scheduler():
+    """اجرای زمان‌بند"""
+    # اجرای هر ساعت در دقیقه ۰
+    schedule.every().hour.at(":00").do(hourly_job)
+    
+    # اجرای اسکنر استراتژی ترکیبی هر ۲ ساعت
+    schedule.every(SystemConfig.MULTI_STRATEGY_SCAN_INTERVAL).seconds.do(multi_strategy_job)
+    
+    print("⏰ زمان‌بند راه‌اندازی شد")
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+# ۱۳. نقطه شروع اجرای برنامه
 if __name__ == "__main__":
     # بارگذاری تاریخچه
     load_signal_history()
@@ -746,6 +800,10 @@ if __name__ == "__main__":
     # ذخیره خودکار تاریخچه هنگام خروج
     import atexit
     atexit.register(save_signal_history)
+    
+    # راه‌اندازی زمان‌بند در یک thread جداگانه
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
     
     print(f"🌐 سرور در حال راه‌اندازی روی پورت {port}...")
     print("="*60 + "\n")
