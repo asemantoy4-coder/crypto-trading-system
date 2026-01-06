@@ -195,22 +195,15 @@ def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
     تشخیص رژیم بازار با فیلترهای اسکالپ
     شامل بررسی SMA، ATR و نوسان‌پذیری
     """
-    try:
-        if len(df) < window:
-            return {
-                "regime": "INSUFFICIENT_DATA", 
-                "scalp_safe": False, 
-                "direction": "NEUTRAL", 
-                "volatility": 0, 
-                "atr_percent": 0,
-                "trend_strength": 0
-            }
-        
-        # 1. محاسبه نوسان
-        returns = df['Close'].pct_change().dropna()
-        volatility = returns.rolling(window=window).std()
-        current_volatility = volatility.iloc[-1]
-        
+high_low = df['High'] - df['Low']
+        high_close = np.abs(df['High'] - df['Close'].shift())
+        low_close = np.abs(df['Low'] - df['Close'].shift())
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        atr = tr.rolling(window=14).mean()
+        # جلوگیری از تقسیم بر صفر
+        df_close = df['Close'].replace(0, np.nan) 
+        atr_percent = (atr / df_close) * 100
+        current_atr_pct = atr_percent.iloc[-1] if not np.isnan(atr_percent.iloc[-1]) else 0
         # 2. محاسبه ATR
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift())
