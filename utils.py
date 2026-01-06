@@ -976,19 +976,40 @@ def format_signal_message(symbol: str, signal_data: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Format Signal Message Error: {e}")
         return f"❌ Error formatting signal for {symbol}"
-# ادامه تابع تست
-        df = pd.DataFrame(data) # فرض بر ساخت دیتافریم
-        result = generate_scalp_signals(df, test_mode=True)
-        
-        if result['valid']:
-            print(f"Test Successful! Signal: {result['signal']}")
-            send_telegram_notification(f"Bot Test Successful. Signal: {result['signal']}", "TEST")
-        else:
-            print(f"Test Failed: {result['reasons']}")
-            
-    except Exception as e:
-        logger.error(f"Testing failed: {e}")
+# ==================== TEST & EXECUTION ====================
+def test_all_functions():
+    """تابع تست برای بررسی عملکرد تمام توابع با داده‌های فرضی"""
+    logger.info("🧪 Running diagnostic tests...")
+    
+    # ایجاد داده‌های نمونه (Dummy Data)
+    data = {
+        'Open': np.random.uniform(50000, 51000, 100),
+        'High': np.random.uniform(51000, 52000, 100),
+        'Low': np.random.uniform(49000, 50000, 100),
+        'Close': np.random.uniform(50000, 51000, 100),
+        'Volume': np.random.uniform(10, 100, 100)
+    }
+    df_test = pd.DataFrame(data)
+    
+    # تست تولید سیگنال
+    results = generate_scalp_signals(df_test, test_mode=True)
+    
+    if results['valid']:
+        logger.info(f"✅ Test successful! Signal: {results['signal']}")
+        print(f"\n--- TEST RESULTS ---")
+        print(f"Signal: {results['signal']}")
+        print(f"Confidence: {results['confidence']:.2%}")
+        print(f"Price: {results['price']}")
+        if results['exit_levels']:
+            print(f"TP1: {results['exit_levels']['tp1']:.2f}")
+            print(f"SL: {results['exit_levels']['stop_loss']:.2f}")
+    else:
+        logger.error(f"❌ Test failed: {results['reasons']}")
 
 if __name__ == "__main__":
-    # اجرای تست اگر فایل مستقیماً اجرا شود
+    # اجرای تست در ابتدای کار
     test_all_functions()
+    
+    # در اینجا می‌توانید حلقه اصلی (Main Loop) را برای دریافت داده‌های واقعی 
+    # از صرافی و اجرای استراتژی اضافه کنید.
+    logger.info("Bot is ready for live/demo environment.")
