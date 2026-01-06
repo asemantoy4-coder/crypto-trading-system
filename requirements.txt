@@ -1,12 +1,12 @@
 flask
 gunicorn>=21.2.0
 pandas>=2.2.2
-pandas_ta==0.3.14b0
+pandas_ta>=0.3.14b
 ccxt
-numpy>=2.1.0
+numpy>=1.26.0
 requests
 schedule
-pytz>=2023.3
+pytz
 python-dotenv
 yfinance
 ta
