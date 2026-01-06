@@ -47,19 +47,13 @@ def send_telegram_notification(message, signal_type="INFO", exit_levels=None):
         payload = {"chat_id": chat_id, "text": full_message, "parse_mode": "Markdown"}
         
         response = requests.post(url, json=payload, timeout=10)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"Telegram Error: {e}")
-        return False
-            
-    except requests.exceptions.Timeout:
-        logger.error("Telegram Error: Request timeout (15 seconds)")
-        return False
-    except requests.exceptions.ConnectionError:
-        logger.error("Telegram Error: Connection failed - check internet")
+        response.raise_for_status() # بررسی خطاهای HTTP
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Telegram Network Error: {e}")
         return False
     except Exception as e:
-        logger.error(f"Telegram Error: {type(e).__name__}: {str(e)}")
+        logger.error(f"Telegram General Error: {e}")
         return False
 
 # ==================== VOLUME PROFILE ADVANCED ====================
