@@ -191,11 +191,6 @@ def get_pro_volume_profile(df: pd.DataFrame, bins: int = 100) -> Dict[str, Any]:
 
 # ==================== MARKET REGIME DETECTION ====================
 def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
-    """
-    تشخیص رژیم بازار با فیلترهای اسکالپ
-    شامل بررسی SMA، ATR و نوسان‌پذیری
-    """
-def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
     try:
         # 1. محاسبه نوسان‌پذیری (Volatility)
         df['returns'] = df['Close'].pct_change()
