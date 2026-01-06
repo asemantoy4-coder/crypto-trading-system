@@ -967,40 +967,47 @@ def format_signal_message(symbol: str, signal_data: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Format Signal Message Error: {e}")
         return f"❌ Error formatting signal for {symbol}"
-# ==================== TEST & EXECUTION ====================
-def test_all_functions():
-    """تابع تست برای بررسی عملکرد تمام توابع با داده‌های فرضی"""
-    logger.info("🧪 Running diagnostic tests...")
-    
-    # ایجاد داده‌های نمونه (Dummy Data)
-    data = {
-        'Open': np.random.uniform(50000, 51000, 100),
-        'High': np.random.uniform(51000, 52000, 100),
-        'Low': np.random.uniform(49000, 50000, 100),
-        'Close': np.random.uniform(50000, 51000, 100),
-        'Volume': np.random.uniform(10, 100, 100)
-    }
-    df_test = pd.DataFrame(data)
-    
-    # تست تولید سیگنال
-    results = generate_scalp_signals(df_test, test_mode=True)
-    
-    if results['valid']:
-        logger.info(f"✅ Test successful! Signal: {results['signal']}")
-        print(f"\n--- TEST RESULTS ---")
-        print(f"Signal: {results['signal']}")
-        print(f"Confidence: {results['confidence']:.2%}")
-        print(f"Price: {results['price']}")
-        if results['exit_levels']:
-            print(f"TP1: {results['exit_levels']['tp1']:.2f}")
-            print(f"SL: {results['exit_levels']['stop_loss']:.2f}")
-    else:
-        logger.error(f"❌ Test failed: {results['reasons']}")
+# ==================== MAIN EXECUTION ====================
+from flask import Flask, jsonify
+import threading
+
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return jsonify({
+        "status": "online",
+        "bot_name": "ScalpPro_Bot",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
+def run_trading_loop():
+    """حلقه اصلی برای اجرای ربات به صورت مداوم"""
+    logger.info("🚀 Starting Main Trading Loop...")
+    while True:
+        try:
+            # ۱. در اینجا باید کد دریافت قیمت از صرافی را قرار دهید
+            # مثال: df = fetch_data_from_exchange("BTC/USDT")
+            
+            # ۲. فعلاً برای اینکه ربات متوقف نشود، فقط لاگ می‌زنیم
+            # logger.info("Scanning market for signals...")
+            
+            time.sleep(60) # هر یک دقیقه چک شود
+        except Exception as e:
+            logger.error(f"Loop Error: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    # اجرای تست در ابتدای کار
+    # ۱. اجرای تست‌های اولیه
+    logger.info("🧪 Starting Initial Tests...")
     test_all_functions()
     
-    # در اینجا می‌توانید حلقه اصلی (Main Loop) را برای دریافت داده‌های واقعی 
-    # از صرافی و اجرای استراتژی اضافه کنید.
-    logger.info("Bot is ready for live/demo environment.")
+    # ۲. اجرای حلقه ترید در یک Thread جداگانه (Non-blocking)
+    trading_thread = threading.Thread(target=run_trading_loop, daemon=True)
+    trading_thread.start()
+    
+    # ۳. اجرای وب‌سرور (ضروری برای Render)
+    # پورت را از محیط سیستم می‌گیرد (Render خودش پورت را تعیین می‌کند)
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
