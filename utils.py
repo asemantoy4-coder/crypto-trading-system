@@ -192,11 +192,11 @@ def get_pro_volume_profile(df: pd.DataFrame, bins: int = 100) -> Dict[str, Any]:
 # ==================== MARKET REGIME DETECTION ====================
 def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
     try:
-        # 1. محاسبه نوسان‌پذیری (Volatility)
+        # 1. محاسبه نوسان‌پذیری
         df['returns'] = df['Close'].pct_change()
         current_volatility = df['returns'].rolling(window=20).std().iloc[-1]
         
-        # 2. محاسبه ATR و درصد آن
+        # 2. محاسبه ATR
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift())
         low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -214,24 +214,20 @@ def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
         sma20_vs_sma50 = ((sma_20.iloc[-1] / sma_50.iloc[-1]) - 1) * 100 if sma_50.iloc[-1] > 0 else 0
         trend_strength = abs(price_vs_sma50) + abs(sma20_vs_sma50)
         
+        direction = "SIDEWAYS"
         if current_price > sma_50.iloc[-1] and sma_20.iloc[-1] > sma_50.iloc[-1]:
             direction = "BULLISH"
         elif current_price < sma_50.iloc[-1] and sma_20.iloc[-1] < sma_50.iloc[-1]:
             direction = "BEARISH"
-        else:
-            direction = "SIDEWAYS"
 
-        # 4. منطق فیلتر اسکالپ
+        # 4. فیلتر اسکالپ
         scalp_safe = True
         regime = "RANGING"
         
-        # اصلاح منطق شرطی
         if pd.isna(current_volatility) or current_volatility < 0.0005:
             scalp_safe = False; regime = "DEAD_MARKET"
-        elif current_volatility > 0.015: # نوسان خیلی شدید
+        elif current_volatility > 0.015 or current_atr_pct > 1.5:
             scalp_safe = False; regime = "VOLATILE"
-        elif current_atr_pct > 1.5:
-            scalp_safe = False; regime = "HIGH_VOLATILITY"
         elif direction != "SIDEWAYS" and trend_strength > 0.5:
             regime = "TRENDING"
             
@@ -246,7 +242,7 @@ def detect_market_regime(df: pd.DataFrame, window: int = 50) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Market Regime Error: {e}")
-        return {"regime": "ERROR", "scalp_safe": False}
+        return {"regime": "ERROR", "scalp_safe": False, "direction": "NEUTRAL", "atr_percent": 0, "regime_score": 0}
         
         # 5. فیلتر حجم
         volume_filter = "NORMAL"
