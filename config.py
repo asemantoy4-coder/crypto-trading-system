@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# اطلاعات استخراج شده از تصویر BotFather
+# تنظیمات تلگرام
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8396237816:AAFBwYRj319UI1FxTG_EjdoLsgfRDsWMImY")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "@AsemanSignals")
 
