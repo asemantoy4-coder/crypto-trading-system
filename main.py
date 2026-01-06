@@ -12,625 +12,639 @@ import requests
 from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 
-# بارگذاری متغیرهای محیطی
+# ==================== CONFIGURATION ====================
 load_dotenv()
 
-# ۱. راه‌اندازی اپلیکیشن Flask
 app = Flask(__name__)
 port = int(os.environ.get("PORT", 5000))
 
-# ۲. ایمپورت مشروط ماژول‌های خاص
-try:
-    import ccxt
-    CCXT_AVAILABLE = True
-except ImportError:
-    print("⚠️ ماژول ccxt یافت نشد - حالت شبیه‌سازی فعال می‌شود")
-    CCXT_AVAILABLE = False
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8396237816:AAFBwYRj319UI1FxTG_EjdoLsgfRDsWMImY")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7037205717")
 
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-except ImportError:
-    print("⚠️ ماژول yfinance یافت نشد")
-    YFINANCE_AVAILABLE = False
-
-try:
-    import ta
-    TA_AVAILABLE = True
-except ImportError:
-    print("⚠️ ماژول ta یافت نشد")
-    TA_AVAILABLE = False
-
-# ۳. تنظیمات سیستم - همه تنظیمات در اینجا
-WATCHLIST = os.environ.get("WATCHLIST", "BTC/USDT,ETH/USDT").split(",")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-# تنظیمات سیستم
+# System Configuration
 class SystemConfig:
-    CHECK_INTERVAL = 30  # ثانیه
-    MIN_SCORE = 3  # حداقل امتیاز برای سیگنال
-    TRADING_HOURS = (0, 23)  # فعالیت شبانه‌روزی
-    MAX_HISTORY = 100  # حداکثر تاریخچه ذخیره‌شده
-    RISK_FREE_ENABLED = True  # فعال‌سازی حالت ریسک‌فری
-    MULTI_STRATEGY_SCAN_INTERVAL = 7200  # ثانیه (2 ساعت)
-    TOP_COINS_LIMIT = 50  # تعداد ارزهای برتر برای اسکن
-    USE_MULTI_STRATEGY = True  # فعال/غیرفعال کردن استراتژی ترکیبی
+    # Trading Settings
+    CHECK_INTERVAL = 20  # seconds
+    MIN_SCORE = 3  # minimum score for signal
+    TRADING_HOURS = (0, 23)  # 24-hour trading
+    MAX_HISTORY = 100
+    
+    # Risk Management
+    RISK_FREE_ENABLED = True
+    STOP_LOSS_PERCENT = 1.0  # 1%
+    TAKE_PROFIT_1_PERCENT = 1.5  # 1.5%
+    TAKE_PROFIT_2_PERCENT = 3.0  # 3.0%
+    
+    # Multi Strategy
+    USE_MULTI_STRATEGY = True
+    MULTI_STRATEGY_INTERVAL = 7200  # 2 hours
+    TOP_COINS_LIMIT = 20
 
-# ۴. متغیرهای گلوبال
+# Watchlist
+WATCHLIST = os.environ.get("WATCHLIST", "BTC/USDT,ETH/USDT,BNB/USDT,ADA/USDT,SOL/USDT").split(",")
+
+# Data Storage
 ACTIVE_SIGNALS: Dict[str, Dict] = {}
 SIGNAL_HISTORY: List[Dict] = []
 SYSTEM_START_TIME = datetime.now(pytz.timezone('Asia/Tehran'))
 
-# ۵. کلاس‌های شبیه‌سازی برای زمانی که ماژول اصلی موجود نیست
-class ExchangeSimulator:
-    """شبیه‌ساز صرافی برای زمانی که ccxt موجود نیست"""
-    
-    def __init__(self):
-        self.exchange_name = "Binance Simulator"
-        self.markets = {
-            'BTC/USDT': {'symbol': 'BTC/USDT', 'base': 'BTC', 'quote': 'USDT'},
-            'ETH/USDT': {'symbol': 'ETH/USDT', 'base': 'ETH', 'quote': 'USDT'},
-            'BNB/USDT': {'symbol': 'BNB/USDT', 'base': 'BNB', 'quote': 'USDT'}
-        }
-    
-    def fetch_ohlcv(self, symbol, timeframe='5m', limit=100):
-        """شبیه‌سازی دریافت داده OHLCV"""
-        try:
-            # داده‌های ساختگی تولید می‌کنیم
-            base_price = {
-                'BTC/USDT': 50000,
-                'ETH/USDT': 3000,
-                'BNB/USDT': 400
-            }.get(symbol, 100)
-            
-            ohlcv = []
-            current_time = int(time.time() * 1000)
-            
-            for i in range(limit):
-                timestamp = current_time - (i * 300000)  # هر 5 دقیقه
-                open_price = base_price * (1 + np.sin(i/10) * 0.01)
-                high_price = open_price * (1 + abs(np.sin(i/5)) * 0.02)
-                low_price = open_price * (1 - abs(np.cos(i/5)) * 0.02)
-                close_price = base_price * (1 + np.sin((i+1)/10) * 0.01)
-                volume = 1000 + np.sin(i/3) * 500
-                
-                ohlcv.append([
-                    timestamp,
-                    open_price,
-                    high_price,
-                    low_price,
-                    close_price,
-                    volume
-                ])
-            
-            return list(reversed(ohlcv))  # قدیمی به جدید
-        except:
-            return None
-    
-    def fetch_ticker(self, symbol):
-        """شبیه‌سازی دریافت تیکر"""
-        try:
-            base_price = {
-                'BTC/USDT': 50000,
-                'ETH/USDT': 3000,
-                'BNB/USDT': 400
-            }.get(symbol, 100)
-            
-            change = np.sin(time.time() / 1000) * 0.01
-            current_price = base_price * (1 + change)
-            
-            return {
-                'symbol': symbol,
-                'last': current_price,
-                'high': current_price * 1.01,
-                'low': current_price * 0.99,
-                'volume': 1000000
-            }
-        except:
-            return None
-    
-    def fetch_tickers(self):
-        """شبیه‌سازی دریافت همه تیکرها"""
-        symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT']
-        tickers = {}
-        
-        for symbol in symbols:
-            ticker = self.fetch_ticker(symbol)
-            if ticker:
-                tickers[symbol.replace('/', '')] = ticker
-        
-        return tickers
+# ==================== HELPER FUNCTIONS ====================
 
-# ۶. توابع کمکی
 def get_iran_time() -> datetime:
-    """محاسبه زمان فعلی تهران"""
+    """Get current Tehran time"""
     return datetime.now(pytz.timezone('Asia/Tehran'))
 
+def log_message(message: str, level: str = "INFO"):
+    """Log message with timestamp"""
+    timestamp = get_iran_time().strftime('%H:%M:%S')
+    print(f"[{timestamp}] {message}")
+
 def send_telegram_message(text: str) -> bool:
-    """ارسال پیام به تلگرام"""
+    """Send message to Telegram"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print(f"📤 تلگرام شبیه‌سازی: {text[:100]}...")
-        return True
+        log_message("⚠️ تلگرام تنظیم نشده", "WARNING")
+        return False
     
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             'chat_id': TELEGRAM_CHAT_ID,
             'text': text,
-            'parse_mode': 'Markdown'
+            'parse_mode': 'Markdown',
+            'disable_web_page_preview': True
         }
+        
         response = requests.post(url, json=payload, timeout=10)
-        return response.status_code == 200
+        
+        if response.status_code == 200:
+            log_message("✅ پیام تلگرام ارسال شد")
+            return True
+        else:
+            log_message(f"❌ خطای تلگرام: {response.status_code}", "ERROR")
+            return False
+            
     except Exception as e:
-        print(f"❌ خطا در ارسال تلگرام: {e}")
+        log_message(f"❌ خطا در ارسال تلگرام: {e}", "ERROR")
         return False
 
 def load_signal_history():
-    """بارگذاری تاریخچه سیگنال‌ها از فایل"""
+    """Load signal history from file"""
     global SIGNAL_HISTORY
     try:
         if os.path.exists('signal_history.json'):
             with open('signal_history.json', 'r') as f:
                 SIGNAL_HISTORY = json.load(f)
-                print(f"✅ تاریخچه {len(SIGNAL_HISTORY)} سیگنال بارگذاری شد")
+                log_message(f"✅ تاریخچه {len(SIGNAL_HISTORY)} سیگنال بارگذاری شد")
     except Exception as e:
-        print(f"❌ خطا در بارگذاری تاریخچه: {e}")
+        log_message(f"❌ خطا در بارگذاری تاریخچه: {e}", "ERROR")
 
 def save_signal_history():
-    """ذخیره تاریخچه سیگنال‌ها در فایل"""
+    """Save signal history to file"""
     try:
         with open('signal_history.json', 'w') as f:
             json.dump(SIGNAL_HISTORY[-SystemConfig.MAX_HISTORY:], f, indent=2)
     except Exception as e:
-        print(f"❌ خطا در ذخیره تاریخچه: {e}")
+        log_message(f"❌ خطا در ذخیره تاریخچه: {e}", "ERROR")
 
-# ۷. توابع تحلیل تکنیکال
-def calculate_indicators(df: pd.DataFrame) -> Dict[str, Any]:
-    """محاسبه اندیکاتورهای تکنیکال"""
-    try:
-        # استفاده از pandas و numpy برای محاسبات پایه
+# ==================== TECHNICAL ANALYSIS ====================
+
+class TechnicalAnalyzer:
+    """Technical analysis with multiple indicators"""
+    
+    @staticmethod
+    def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
+        """Calculate RSI indicator"""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
+    @staticmethod
+    def calculate_macd(prices: pd.Series) -> Dict[str, pd.Series]:
+        """Calculate MACD indicator"""
+        exp1 = prices.ewm(span=12, adjust=False).mean()
+        exp2 = prices.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+        histogram = macd - signal
+        
+        return {
+            'macd': macd,
+            'signal': signal,
+            'histogram': histogram
+        }
+    
+    @staticmethod
+    def calculate_bollinger_bands(prices: pd.Series, period: int = 20, std: float = 2.0):
+        """Calculate Bollinger Bands"""
+        sma = prices.rolling(window=period).mean()
+        rolling_std = prices.rolling(window=period).std()
+        
+        upper_band = sma + (rolling_std * std)
+        lower_band = sma - (rolling_std * std)
+        
+        return {
+            'sma': sma,
+            'upper': upper_band,
+            'lower': lower_band
+        }
+    
+    @staticmethod
+    def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
+        """Calculate Average True Range"""
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(window=period).mean()
+        return atr
+    
+    @staticmethod
+    def analyze_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
+        """Complete technical analysis of price data"""
         close = df['close']
         high = df['high']
         low = df['low']
         volume = df['volume']
         
-        # محاسبات ساده
+        # Calculate indicators
+        rsi = TechnicalAnalyzer.calculate_rsi(close)
+        macd_data = TechnicalAnalyzer.calculate_macd(close)
+        bb_data = TechnicalAnalyzer.calculate_bollinger_bands(close)
+        atr = TechnicalAnalyzer.calculate_atr(high, low, close)
+        
+        # Moving averages
         sma_20 = close.rolling(window=20).mean()
         sma_50 = close.rolling(window=50).mean()
-        
-        # RSI ساده
-        delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        # MACD ساده
         ema_12 = close.ewm(span=12, adjust=False).mean()
         ema_26 = close.ewm(span=26, adjust=False).mean()
-        macd = ema_12 - ema_26
-        signal_line = macd.ewm(span=9, adjust=False).mean()
         
-        # بولینگر باندز
-        bb_ma = close.rolling(window=20).mean()
-        bb_std = close.rolling(window=20).std()
-        bb_upper = bb_ma + (bb_std * 2)
-        bb_lower = bb_ma - (bb_std * 2)
+        # Volume analysis
+        volume_sma = volume.rolling(window=20).mean()
+        volume_ratio = volume / volume_sma
         
-        # محاسبه امتیاز (ساده شده)
+        # Calculate score
         score = 0
-        
-        # سیگنال روند
-        if sma_20.iloc[-1] > sma_50.iloc[-1]:
-            score += 2
-        
-        # سیگنال RSI
-        if rsi.iloc[-1] < 30:
-            score += 2  # اشباع فروش
-        elif rsi.iloc[-1] > 70:
-            score -= 2  # اشباع خرید
-        
-        # سیگنال MACD
-        if macd.iloc[-1] > signal_line.iloc[-1]:
-            score += 1
-        
-        # موقعیت نسبت به بولینگر
         current_price = close.iloc[-1]
-        if current_price < bb_lower.iloc[-1]:
-            score += 2  # نزدیک به باند پایین
-        elif current_price > bb_upper.iloc[-1]:
-            score -= 2  # نزدیک به باند بالا
+        
+        # 1. Trend (25%)
+        if sma_20.iloc[-1] > sma_50.iloc[-1]:
+            score += 2.5
+        
+        # 2. RSI (25%)
+        current_rsi = rsi.iloc[-1]
+        if 30 <= current_rsi <= 70:
+            score += 1.0
+        elif current_rsi < 30:  # Oversold
+            score += 2.5
+        elif current_rsi > 70:  # Overbought
+            score -= 2.5
+        
+        # 3. MACD (20%)
+        if macd_data['macd'].iloc[-1] > macd_data['signal'].iloc[-1]:
+            score += 2.0
+        
+        # 4. Bollinger Bands (15%)
+        if current_price <= bb_data['lower'].iloc[-1]:
+            score += 1.5  # Near lower band
+        elif current_price >= bb_data['upper'].iloc[-1]:
+            score -= 1.5  # Near upper band
+        
+        # 5. Volume (15%)
+        if volume_ratio.iloc[-1] > 1.5:
+            score += 1.5  # High volume
         
         return {
-            'score': score,
+            'score': round(score, 2),
             'price': current_price,
-            'rsi': rsi.iloc[-1],
-            'macd': macd.iloc[-1],
-            'signal': signal_line.iloc[-1],
-            'sma_20': sma_20.iloc[-1],
-            'sma_50': sma_50.iloc[-1]
+            'indicators': {
+                'rsi': round(current_rsi, 2),
+                'macd': round(macd_data['macd'].iloc[-1], 4),
+                'signal': round(macd_data['signal'].iloc[-1], 4),
+                'bb_upper': round(bb_data['upper'].iloc[-1], 2),
+                'bb_lower': round(bb_data['lower'].iloc[-1], 2),
+                'bb_middle': round(bb_data['sma'].iloc[-1], 2),
+                'atr': round(atr.iloc[-1], 4),
+                'sma_20': round(sma_20.iloc[-1], 2),
+                'sma_50': round(sma_50.iloc[-1], 2)
+            }
         }
-        
-    except Exception as e:
-        print(f"❌ خطا در محاسبه اندیکاتورها: {e}")
-        return {'score': 0, 'price': df['close'].iloc[-1] if len(df) > 0 else 0}
 
-# ۸. تحلیل استراتژی ترکیبی
-def calculate_multi_strategy_signals(df: pd.DataFrame) -> tuple:
-    """محاسبه سیگنال‌های استراتژی ترکیبی"""
-    try:
-        close = df['close']
-        high = df['high']
-        low = df['low']
-        
-        # میانگین متحرک ساده
-        ma_50 = close.rolling(window=50).mean()
-        ma_200 = close.rolling(window=200).mean()
-        
-        # ATR (Average True Range)
-        tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
-        
-        # بررسی روند صعودی
-        is_bullish = (
-            close.iloc[-1] > ma_50.iloc[-1] and 
-            ma_50.iloc[-1] > ma_200.iloc[-1]
-        )
-        
-        # بررسی FVG ساده (الگوی گپ)
-        has_fvg = False
-        if len(df) >= 3:
-            # الگوی ساده برای FVG
-            prev_low = low.iloc[-2]
-            current_high = high.iloc[-1]
-            if current_high > prev_low * 1.005:  # گپ 0.5% رو به بالا
-                has_fvg = True
-        
-        current_price = close.iloc[-1]
-        current_atr = atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else current_price * 0.02
-        
-        return is_bullish, current_price, current_atr, has_fvg
-        
-    except Exception as e:
-        print(f"❌ خطا در استراتژی ترکیبی: {e}")
-        return False, df['close'].iloc[-1] if len(df) > 0 else 0, 0, False
+# ==================== EXCHANGE DATA ====================
 
-# ۹. بدنه اصلی تحلیل و ارسال پیام
-def analyze_and_broadcast(symbol: str, force: bool = False) -> Dict[str, Any]:
-    """تحلیل نماد و ارسال سیگنال در صورت وجود شرایط"""
+class ExchangeData:
+    """Fetch data from exchange (simulated for now)"""
+    
+    @staticmethod
+    def fetch_ohlcv(symbol: str, timeframe: str = '5m', limit: int = 100) -> Optional[pd.DataFrame]:
+        """Fetch OHLCV data"""
+        try:
+            # Simulated data (in production, connect to real exchange)
+            np.random.seed(int(time.time()))
+            
+            # Base price based on symbol
+            base_prices = {
+                'BTC/USDT': 50000,
+                'ETH/USDT': 3000,
+                'BNB/USDT': 400,
+                'ADA/USDT': 0.5,
+                'SOL/USDT': 100
+            }
+            
+            base_price = base_prices.get(symbol.upper(), 100)
+            
+            # Generate synthetic data
+            dates = pd.date_range(end=datetime.now(), periods=limit, freq=timeframe)
+            
+            # Random walk for prices
+            returns = np.random.randn(limit) * 0.002
+            prices = base_price * np.exp(np.cumsum(returns))
+            
+            # Create OHLCV data
+            open_prices = prices * (1 + np.random.randn(limit) * 0.001)
+            high_prices = np.maximum(open_prices, prices) * (1 + np.random.rand(limit) * 0.005)
+            low_prices = np.minimum(open_prices, prices) * (1 - np.random.rand(limit) * 0.005)
+            close_prices = prices
+            volumes = np.random.rand(limit) * 1000 + 500
+            
+            df = pd.DataFrame({
+                'timestamp': dates,
+                'open': open_prices,
+                'high': high_prices,
+                'low': low_prices,
+                'close': close_prices,
+                'volume': volumes
+            })
+            
+            df.set_index('timestamp', inplace=True)
+            
+            log_message(f"📊 داده‌های {symbol} دریافت شد: {len(df)} کندل")
+            return df
+            
+        except Exception as e:
+            log_message(f"❌ خطا در دریافت داده {symbol}: {e}", "ERROR")
+            return None
+    
+    @staticmethod
+    def fetch_current_price(symbol: str) -> Optional[float]:
+        """Fetch current price"""
+        try:
+            df = ExchangeData.fetch_ohlcv(symbol, '1m', 2)
+            if df is not None and not df.empty:
+                return float(df['close'].iloc[-1])
+        except:
+            pass
+        return None
+
+# ==================== TRADING ENGINE ====================
+
+def analyze_symbol(symbol: str, force: bool = False) -> Dict[str, Any]:
+    """Analyze symbol and generate signal if conditions met"""
     try:
-        # بررسی زمان معاملاتی
+        # Check trading hours
         iran_time = get_iran_time()
         if not force and not (SystemConfig.TRADING_HOURS[0] <= iran_time.hour <= SystemConfig.TRADING_HOURS[1]):
-            print(f"⏰ خارج از ساعت معاملاتی ({iran_time.hour}:{iran_time.minute})")
+            log_message(f"⏰ خارج از ساعت معاملاتی ({iran_time.hour}:{iran_time.minute})")
             return {"status": "outside_trading_hours"}
         
-        # تنظیم نماد
-        clean_symbol = symbol.replace("/", "").replace("-", "").upper()
-        exchange_symbol = symbol
+        # Format symbol
+        if '/' not in symbol and 'USDT' in symbol:
+            symbol = symbol.replace('USDT', '/USDT')
         
-        # دریافت داده
-        ohlcv_data = None
+        clean_symbol = symbol.replace("/", "").upper()
         
-        if CCXT_AVAILABLE:
-            try:
-                exchange = ccxt.binance()
-                ohlcv_data = exchange.fetch_ohlcv(exchange_symbol, '5m', limit=100)
-            except:
-                pass
-        
-        if ohlcv_data is None:
-            # استفاده از شبیه‌ساز
-            exchange_sim = ExchangeSimulator()
-            ohlcv_data = exchange_sim.fetch_ohlcv(exchange_symbol, '5m', limit=100)
-        
-        if not ohlcv_data:
-            print(f"⚠️ داده‌ای برای {symbol} دریافت نشد.")
+        # Fetch data
+        df = ExchangeData.fetch_ohlcv(symbol, '5m', 100)
+        if df is None or df.empty:
+            log_message(f"⚠️ داده‌ای برای {symbol} دریافت نشد")
             return {"status": "no_data", "symbol": symbol}
         
-        # تبدیل به DataFrame
-        df = pd.DataFrame(
-            ohlcv_data, 
-            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        )
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
+        # Technical analysis
+        analysis = TechnicalAnalyzer.analyze_dataframe(df)
+        score = analysis['score']
+        current_price = analysis['price']
         
-        # تحلیل تکنیکال
-        analysis = calculate_indicators(df)
-        score = analysis.get('score', 0)
-        current_price = analysis.get('price', 0)
+        log_message(f"📊 تحلیل {symbol}: امتیاز={score}, قیمت={current_price:.2f}")
         
-        print(f"📊 تحلیل {symbol}: امتیاز={score}, قیمت={current_price}")
-        
-        # بررسی شرایط سیگنال
+        # Check signal conditions
         if abs(score) >= SystemConfig.MIN_SCORE or force:
             side = "BUY" if score >= 0 else "SELL"
             
-            # محاسبه حد ضرر و تارگت‌ها
+            # Calculate exit levels
             if side == "BUY":
-                sl = current_price * 0.995
-                risk = current_price - sl
-                tp1 = current_price + (risk * 1.5)
-                tp2 = current_price + (risk * 3)
+                sl_price = current_price * (1 - SystemConfig.STOP_LOSS_PERCENT / 100)
+                tp1_price = current_price * (1 + SystemConfig.TAKE_PROFIT_1_PERCENT / 100)
+                tp2_price = current_price * (1 + SystemConfig.TAKE_PROFIT_2_PERCENT / 100)
             else:  # SELL
-                sl = current_price * 1.005
-                risk = sl - current_price
-                tp1 = current_price - (risk * 1.5)
-                tp2 = current_price - (risk * 3)
+                sl_price = current_price * (1 + SystemConfig.STOP_LOSS_PERCENT / 100)
+                tp1_price = current_price * (1 - SystemConfig.TAKE_PROFIT_1_PERCENT / 100)
+                tp2_price = current_price * (1 - SystemConfig.TAKE_PROFIT_2_PERCENT / 100)
             
-            # ذخیره اطلاعات سیگنال
+            # Prepare signal data
             signal_data = {
                 'symbol': clean_symbol,
                 'side': side,
-                'entry': current_price,
-                'score': abs(score),
+                'entry': round(current_price, 4),
+                'score': round(abs(score), 2),
                 'exit_levels': {
-                    'tp1': tp1,
-                    'tp2': tp2,
-                    'stop_loss': sl,
+                    'tp1': round(tp1_price, 4),
+                    'tp2': round(tp2_price, 4),
+                    'stop_loss': round(sl_price, 4),
                     'direction': side
                 },
+                'indicators': analysis['indicators'],
                 'timestamp': iran_time.isoformat(),
                 'status': 'ACTIVE',
+                'notifications_sent': {
+                    'tp1': False,
+                    'tp2': False,
+                    'sl': False
+                },
                 'force': force,
-                'strategy': 'SCALP'
+                'strategy': 'MAIN'
             }
             
-            # بررسی وجود سیگنال فعال برای این نماد
+            # Check for existing active signal
             if clean_symbol in ACTIVE_SIGNALS:
-                old_status = ACTIVE_SIGNALS[clean_symbol].get('status', 'UNKNOWN')
-                print(f"⚠️ سیگنال فعال قبلی برای {clean_symbol} با وضعیت {old_status}")
-                
-                if old_status == 'ACTIVE':
+                old_signal = ACTIVE_SIGNALS[clean_symbol]
+                if old_signal.get('status') == 'ACTIVE':
+                    log_message(f"⚠️ سیگنال فعال قبلی برای {clean_symbol} وجود دارد")
                     return {
                         "status": "active_signal_exists",
-                        "symbol": clean_symbol,
-                        "message": "سیگنال فعال قبلی هنوز باز است"
+                        "symbol": clean_symbol
                     }
             
-            # ذخیره در حافظه فعال
+            # Store in memory
             ACTIVE_SIGNALS[clean_symbol] = signal_data
             
-            # اضافه به تاریخچه
+            # Add to history
             SIGNAL_HISTORY.append(signal_data.copy())
             if len(SIGNAL_HISTORY) > SystemConfig.MAX_HISTORY:
                 SIGNAL_HISTORY.pop(0)
             
-            # ساخت پیام تلگرام
+            # Prepare Telegram message
             emoji = "🟢" if side == "BUY" else "🔴"
             signal_type = "🔧 FORCE" if force else "🚀 AUTO"
             
-            msg = (
+            telegram_msg = (
                 f"{signal_type} *SIGNAL: {clean_symbol}* {emoji}\n"
-                f"📶 Direction: {side}\n"
-                f"📊 Score: {abs(score)}/10\n"
-                f"💵 Entry Price: {current_price:.4f}\n"
-                f"🎯 Take Profit 1: {tp1:.4f}\n"
-                f"🎯 Take Profit 2: {tp2:.4f}\n"
-                f"🛑 Stop Loss: {sl:.4f}\n"
-                f"📈 Risk/Reward: 1:3\n"
-                f"⏰ Time: {iran_time.strftime('%H:%M:%S')}\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"📶 جهت: {side}\n"
+                f"⭐ امتیاز: {abs(score):.1f}/10\n"
+                f"💰 قیمت ورود: `{current_price:.2f}`\n"
+                f"📊 RSI: `{analysis['indicators']['rsi']:.1f}`\n"
+                f"🎯 تارگت ۱: `{tp1_price:.2f}`\n"
+                f"🎯 تارگت ۲: `{tp2_price:.2f}`\n"
+                f"🛑 استاپ‌لاس: `{sl_price:.2f}`\n"
+                f"📈 نسبت R/R: ۱:۳\n"
+                f"⏰ زمان: {iran_time.strftime('%H:%M:%S')}\n"
+                f"━━━━━━━━━━━━━━━\n"
                 f"#{clean_symbol.replace('USDT', '')} #{side}"
             )
             
-            # ارسال به تلگرام
-            success = send_telegram_message(msg)
+            # Send to Telegram
+            telegram_sent = send_telegram_message(telegram_msg)
             
-            if success:
-                print(f"✅ سیگنال {clean_symbol} ارسال شد. وضعیت: ACTIVE")
+            if telegram_sent:
+                log_message(f"✅ سیگنال {clean_symbol} ارسال شد")
                 return {
                     "status": "success",
                     "symbol": clean_symbol,
                     "side": side,
                     "entry": current_price,
-                    "tp1": tp1,
-                    "tp2": tp2,
-                    "sl": sl,
-                    "strategy": "SCALP"
+                    "score": abs(score),
+                    "tp1": tp1_price,
+                    "tp2": tp2_price,
+                    "sl": sl_price,
+                    "telegram_sent": True
                 }
             else:
-                print(f"❌ ارسال سیگنال {clean_symbol} ناموفق بود")
-                if clean_symbol in ACTIVE_SIGNALS:
-                    del ACTIVE_SIGNALS[clean_symbol]
-                return {"status": "telegram_error", "symbol": clean_symbol}
+                log_message(f"⚠️ سیگنال ثبت شد اما تلگرام ارسال نشد: {clean_symbol}")
+                return {
+                    "status": "registered_no_telegram",
+                    "symbol": clean_symbol,
+                    "side": side,
+                    "entry": current_price,
+                    "message": "سیگنال ثبت شد اما به تلگرام ارسال نشد"
+                }
         
         else:
-            print(f"ℹ️ امتیاز {clean_symbol}: {score} (کمتر از حد نصاب {SystemConfig.MIN_SCORE})")
+            log_message(f"ℹ️ امتیاز ناکافی {symbol}: {score:.1f} (حداقل: {SystemConfig.MIN_SCORE})")
             return {
                 "status": "low_score",
-                "symbol": clean_symbol,
-                "score": score,
+                "symbol": symbol,
+                "score": round(score, 2),
                 "min_required": SystemConfig.MIN_SCORE
             }
             
     except Exception as e:
-        error_msg = f"❌ خطا در تحلیل {symbol}: {str(e)}"
-        print(error_msg)
+        log_message(f"❌ خطا در تحلیل {symbol}: {e}", "ERROR")
         return {"status": "error", "symbol": symbol, "error": str(e)}
 
-# ۱۰. تحلیل با استراتژی ترکیبی
-def analyze_with_multi_strategy(symbol: str, timeframe: str = '1h') -> Dict[str, Any]:
-    """تحلیل با استراتژی ترکیبی"""
-    try:
-        exchange_symbol = symbol
-        
-        # دریافت داده
-        ohlcv_data = None
-        
-        if CCXT_AVAILABLE:
-            try:
-                exchange = ccxt.binance()
-                ohlcv_data = exchange.fetch_ohlcv(exchange_symbol, timeframe, limit=100)
-            except:
-                pass
-        
-        if ohlcv_data is None:
-            exchange_sim = ExchangeSimulator()
-            ohlcv_data = exchange_sim.fetch_ohlcv(exchange_symbol, timeframe, limit=100)
-        
-        if not ohlcv_data:
-            print(f"⚠️ داده‌ای برای {symbol} دریافت نشد.")
-            return {"status": "no_data", "symbol": symbol}
-        
-        # تبدیل به DataFrame
-        df = pd.DataFrame(
-            ohlcv_data, 
-            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        )
-        
-        bars_df = pd.DataFrame({
-            'open': df['open'],
-            'high': df['high'],
-            'low': df['low'],
-            'close': df['close'],
-            'volume': df['volume']
-        })
-        
-        # فراخوانی استراتژی ترکیبی
-        is_bull, price, atr, has_fvg = calculate_multi_strategy_signals(bars_df)
-        
-        if is_bull:
-            current_price = df['close'].iloc[-1]
-            sl = current_price - (atr * 1.5)
-            tp = current_price + (atr * 2.5)
-            
-            signal_data = {
-                'symbol': symbol.replace("/", ""),
-                'side': 'BUY',
-                'entry': current_price,
-                'exit_levels': {
-                    'tp1': tp,
-                    'tp2': tp * 1.5,
-                    'stop_loss': sl,
-                    'direction': 'BUY',
-                    'atr': atr
-                },
-                'timestamp': get_iran_time().isoformat(),
-                'status': 'ACTIVE',
-                'strategy': 'MULTI',
-                'has_fvg': has_fvg,
-                'timeframe': timeframe
-            }
-            
-            # ساخت پیام تلگرام
-            msg = (
-                f"🚀 **سیگنال ترکیبی پیشرفته**\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"📊 نماد: #{symbol.replace('/', '')}\n"
-                f"📈 تایم‌فریم: {timeframe}\n"
-                f"🟢 ورود: `{current_price:.4f}`\n"
-                f"🔴 استاپ داینامیک: `{sl:.4f}` \n"
-                f"🎯 تارگت اول: `{tp:.4f}` \n"
-                f"🧱 تاییدیه FVG: {'✅' if has_fvg else '❌'}\n"
-                f"📊 ATR: `{atr:.4f}`\n"
-                f"⏰ زمان: {get_iran_time().strftime('%H:%M:%S')}\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"🏷️ #MultiStrategy"
-            )
-            
-            success = send_telegram_message(msg)
-            
-            if success:
-                ACTIVE_SIGNALS[symbol.replace("/", "")] = signal_data
-                SIGNAL_HISTORY.append(signal_data.copy())
-                
-                print(f"✅ سیگنال ترکیبی {symbol} ارسال شد")
-                return {
-                    "status": "success",
-                    "symbol": symbol,
-                    "strategy": "MULTI",
-                    "entry": current_price,
-                    "tp": tp,
-                    "sl": sl,
-                    "has_fvg": has_fvg
-                }
-        
-        return {"status": "no_signal", "symbol": symbol}
-        
-    except Exception as e:
-        error_msg = f"❌ خطا در تحلیل ترکیبی {symbol}: {str(e)}"
-        print(error_msg)
-        return {"status": "error", "symbol": symbol, "error": str(e)}
+# ==================== SCHEDULER FUNCTIONS ====================
 
-# ۱۱. مسیرهای وب (Routes)
-@app.route('/')
-def home():
-    """صفحه اصلی"""
-    return jsonify({
-        "status": "online",
-        "name": "Crypto Trading Bot",
-        "version": "3.0",
-        "iran_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S'),  # اصلاح شد: %Y-%m-%d
-        "active_signals": len(ACTIVE_SIGNALS),
-        "strategies": {
-            "scalp": "فعال",
-            "multi_strategy": "فعال" if SystemConfig.USE_MULTI_STRATEGY else "غیرفعال"
-        },
-        "trading_hours": f"{SystemConfig.TRADING_HOURS[0]}:00 - {SystemConfig.TRADING_HOURS[1]}:00"
-    })
-
-@app.route('/signals')
-def signals_status():
-    """نمایش وضعیت سیگنال‌های فعال"""
-    active_signals = []
-    
-    for symbol, data in ACTIVE_SIGNALS.items():
-        # دریافت قیمت لحظه‌ای
-        current_price = data['entry']  # در نسخه ساده از قیمت ورودی استفاده می‌کنیم
-        
-        active_signals.append({
-            'symbol': symbol,
-            'side': data['side'],
-            'entry': data['entry'],
-            'current_price': current_price,
-            'tp1': data['exit_levels']['tp1'],
-            'tp2': data['exit_levels']['tp2'],
-            'sl': data['exit_levels']['stop_loss'],
-            'status': data['status'],
-            'strategy': data.get('strategy', 'SCALP'),
-            'score': data.get('score', 0),
-            'timestamp': data['timestamp']
-        })
-    
-    return jsonify({
-        "active_signals": active_signals,
-        "active_count": len(active_signals),
-        "total_history": len(SIGNAL_HISTORY),
-        "system_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S')
-    })
-
-@app.route('/analyze/<symbol>')
-def analyze_symbol(symbol: str):
-    """تحلیل دستی یک نماد"""
-    force = request.args.get('force', 'false').lower() == 'true'
-    result = analyze_and_broadcast(symbol, force=force)
-    return jsonify(result)
-
-@app.route('/multi_analyze/<symbol>')
-def multi_analyze_symbol(symbol: str):
-    """تحلیل دستی با استراتژی ترکیبی"""
-    timeframe = request.args.get('timeframe', '1h')
-    result = analyze_with_multi_strategy(symbol, timeframe)
-    return jsonify(result)
-
-@app.route('/force_analyze')
-def force_analyze():
-    """تحلیل اجباری کل واچ‌لیست"""
-    results = []
-    
-    print(f"🚀 شروع تحلیل اجباری {len(WATCHLIST)} نماد")
+def hourly_scan():
+    """Hourly scan of watchlist"""
+    log_message("⏰ شروع اسکن ساعتی")
     
     for symbol in WATCHLIST:
         try:
-            result = analyze_and_broadcast(symbol, force=True)
-            results.append(result)
-            time.sleep(1)
+            analyze_symbol(symbol, force=False)
+            time.sleep(1)  # Delay between symbols
+        except Exception as e:
+            log_message(f"❌ خطا در اسکن {symbol}: {e}", "ERROR")
+            continue
+    
+    log_message("✅ اسکن ساعتی کامل شد")
+
+def multi_strategy_scan():
+    """Multi-strategy scan"""
+    if not SystemConfig.USE_MULTI_STRATEGY:
+        return
+    
+    log_message("🚀 شروع اسکن استراتژی ترکیبی")
+    
+    # Scan top coins
+    for i, symbol in enumerate(WATCHLIST[:SystemConfig.TOP_COINS_LIMIT]):
+        try:
+            # Analyze with different timeframes
+            result = analyze_symbol(symbol, force=False)
             
+            if result.get('status') == 'success':
+                log_message(f"✅ سیگنال پیدا شد: {symbol}")
+            
+            time.sleep(0.5)  # Delay
+            
+        except Exception as e:
+            log_message(f"⚠️ خطا در تحلیل {symbol}: {e}", "WARNING")
+            continue
+    
+    log_message("📈 اسکن استراتژی ترکیبی کامل شد")
+
+def monitor_active_signals():
+    """Monitor active signals for exit conditions"""
+    while True:
+        try:
+            symbols_to_check = list(ACTIVE_SIGNALS.keys())
+            
+            if not symbols_to_check:
+                time.sleep(SystemConfig.CHECK_INTERVAL)
+                continue
+            
+            for symbol in symbols_to_check:
+                if symbol not in ACTIVE_SIGNALS:
+                    continue
+                
+                signal_data = ACTIVE_SIGNALS[symbol]
+                current_price = ExchangeData.fetch_current_price(symbol)
+                
+                if current_price is None:
+                    continue
+                
+                # Check exit conditions (simplified)
+                levels = signal_data['exit_levels']
+                side = signal_data['side']
+                
+                if side == 'BUY':
+                    if current_price >= levels['tp2']:
+                        # TP2 hit
+                        close_signal(symbol, current_price, "TP2")
+                    elif current_price >= levels['tp1'] and not signal_data['notifications_sent']['tp1']:
+                        # TP1 hit
+                        notify_target_hit(symbol, current_price, signal_data, "TP1")
+                        signal_data['notifications_sent']['tp1'] = True
+                    elif current_price <= levels['stop_loss']:
+                        # Stop loss hit
+                        close_signal(symbol, current_price, "SL")
+                
+                elif side == 'SELL':
+                    if current_price <= levels['tp2']:
+                        close_signal(symbol, current_price, "TP2")
+                    elif current_price <= levels['tp1'] and not signal_data['notifications_sent']['tp1']:
+                        notify_target_hit(symbol, current_price, signal_data, "TP1")
+                        signal_data['notifications_sent']['tp1'] = True
+                    elif current_price >= levels['stop_loss']:
+                        close_signal(symbol, current_price, "SL")
+            
+            time.sleep(SystemConfig.CHECK_INTERVAL)
+            
+        except Exception as e:
+            log_message(f"❌ خطا در مانیتورینگ: {e}", "ERROR")
+            time.sleep(30)
+
+def close_signal(symbol: str, close_price: float, reason: str):
+    """Close a signal"""
+    if symbol not in ACTIVE_SIGNALS:
+        return
+    
+    signal_data = ACTIVE_SIGNALS[symbol]
+    
+    # Calculate P&L
+    entry = signal_data['entry']
+    if signal_data['side'] == 'BUY':
+        pnl_percent = ((close_price - entry) / entry) * 100
+    else:
+        pnl_percent = ((entry - close_price) / entry) * 100
+    
+    # Update signal data
+    signal_data['closed_at'] = close_price
+    signal_data['closed_time'] = get_iran_time().isoformat()
+    signal_data['close_reason'] = reason
+    signal_data['pnl_percent'] = round(pnl_percent, 2)
+    signal_data['status'] = f"CLOSED_{reason}"
+    
+    # Send notification
+    emoji = "💰" if "TP" in reason else "🛑"
+    title = "تارگت نهایی" if reason == "TP2" else "استاپ لاس" if reason == "SL" else "تارگت اول"
+    
+    telegram_msg = (
+        f"{emoji} *{symbol} - {title}*\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📊 نماد: {symbol}\n"
+        f"💰 قیمت بسته شدن: `{close_price:.2f}`\n"
+        f"📈 قیمت ورود: `{entry:.2f}`\n"
+        f"📊 سود/ضرر: `{pnl_percent:.2f}%`\n"
+        f"🎯 دلیل: {reason}\n"
+        f"⏰ زمان: {get_iran_time().strftime('%H:%M:%S')}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"✅ پوزیشن بسته شد"
+    )
+    
+    send_telegram_message(telegram_msg)
+    
+    # Remove from active signals
+    del ACTIVE_SIGNALS[symbol]
+    
+    log_message(f"📋 سیگنال {symbol} بسته شد: {reason} ({pnl_percent:.2f}%)")
+
+def notify_target_hit(symbol: str, price: float, signal_data: Dict, target: str):
+    """Notify when target is hit"""
+    telegram_msg = (
+        f"✅ *{symbol} - {target} Hit*\n"
+        f"🎯 {target}: `{signal_data['exit_levels'][target.lower()]:.2f}`\n"
+        f"💰 قیمت فعلی: `{price:.2f}`\n"
+        f"🔄 پوزیشن همچنان باز است\n"
+        f"⏰ {get_iran_time().strftime('%H:%M:%S')}"
+    )
+    
+    send_telegram_message(telegram_msg)
+
+def run_scheduler():
+    """Run the job scheduler"""
+    # Schedule hourly scan at minute 0
+    schedule.every().hour.at(":00").do(hourly_scan)
+    
+    # Schedule multi-strategy scan every 2 hours
+    schedule.every(SystemConfig.MULTI_STRATEGY_INTERVAL).seconds.do(multi_strategy_scan)
+    
+    # Initial scan
+    threading.Thread(target=hourly_scan, daemon=True).start()
+    
+    log_message("⏰ زمان‌بند راه‌اندازی شد")
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+# ==================== API ROUTES ====================
+
+@app.route('/')
+def home():
+    """Home page"""
+    return jsonify({
+        "status": "online",
+        "name": "Crypto Trading System",
+        "version": "4.0",
+        "telegram": f"@{TELEGRAM_BOT_TOKEN.split(':')[0] if ':' in TELEGRAM_BOT_TOKEN else 'N/A'}",
+        "iran_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S'),
+        "active_signals": len(ACTIVE_SIGNALS),
+        "config": {
+            "min_score": SystemConfig.MIN_SCORE,
+            "trading_hours": SystemConfig.TRADING_HOURS,
+            "watchlist": WATCHLIST
+        }
+    })
+
+@app.route('/analyze/<symbol>')
+def api_analyze(symbol: str):
+    """Analyze a symbol"""
+    force = request.args.get('force', 'false').lower() == 'true'
+    result = analyze_symbol(symbol, force)
+    return jsonify(result)
+
+@app.route('/scan')
+def api_scan():
+    """Scan all symbols"""
+    results = []
+    
+    for symbol in WATCHLIST:
+        try:
+            result = analyze_symbol(symbol, force=True)
+            results.append(result)
+            time.sleep(0.5)
         except Exception as e:
             results.append({
                 "symbol": symbol,
@@ -641,172 +655,110 @@ def force_analyze():
     return jsonify({
         "status": "completed",
         "total": len(WATCHLIST),
-        "successful": len([r for r in results if r.get('status') == 'success']),
         "results": results
     })
 
+@app.route('/signals')
+def api_signals():
+    """Get active signals"""
+    return jsonify({
+        "active": list(ACTIVE_SIGNALS.values()),
+        "count": len(ACTIVE_SIGNALS),
+        "total_history": len(SIGNAL_HISTORY)
+    })
+
 @app.route('/stats')
-def system_stats():
-    """آمار سیستم"""
-    total_signals = len(SIGNAL_HISTORY)
-    scalp_signals = len([s for s in SIGNAL_HISTORY if s.get('strategy') == 'SCALP'])
-    multi_signals = len([s for s in SIGNAL_HISTORY if s.get('strategy') == 'MULTI'])
-    
-    successful_signals = len([s for s in SIGNAL_HISTORY if s.get('status', '').startswith('CLOSED_TP')])
-    stop_loss_signals = len([s for s in SIGNAL_HISTORY if s.get('status') == 'CLOSED_SL'])
-    active_signals = len(ACTIVE_SIGNALS)
+def api_stats():
+    """System statistics"""
+    successful = len([s for s in SIGNAL_HISTORY if s.get('status', '').startswith('CLOSED_TP')])
+    stopped = len([s for s in SIGNAL_HISTORY if s.get('status') == 'CLOSED_SL'])
     
     return jsonify({
         "system": {
+            "uptime": str(get_iran_time() - SYSTEM_START_TIME),
             "start_time": SYSTEM_START_TIME.strftime('%Y-%m-%d %H:%M:%S'),
-            "uptime": str(datetime.now(pytz.timezone('Asia/Tehran')) - SYSTEM_START_TIME),
-            "iran_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S')
+            "current_time": get_iran_time().strftime('%Y-%m-%d %H:%M:%S')
         },
         "performance": {
-            "total_signals": total_signals,
-            "scalp_signals": scalp_signals,
-            "multi_strategy_signals": multi_signals,
-            "active_signals": active_signals,
-            "successful_closed": successful_signals,
-            "stop_loss_closed": stop_loss_signals,
-            "win_rate": f"{(successful_signals/(successful_signals+stop_loss_signals)*100 if (successful_signals+stop_loss_signals) > 0 else 0):.1f}%"
+            "total_signals": len(SIGNAL_HISTORY),
+            "active_signals": len(ACTIVE_SIGNALS),
+            "successful": successful,
+            "stopped": stopped,
+            "win_rate": f"{(successful/(successful+stopped)*100):.1f}%" if (successful+stopped) > 0 else "0%"
         },
-        "config": {
-            "trading_hours": SystemConfig.TRADING_HOURS,
-            "min_score": SystemConfig.MIN_SCORE,
-            "use_multi_strategy": SystemConfig.USE_MULTI_STRATEGY
-        },
-        "watchlist": WATCHLIST,
-        "modules": {
-            "ccxt": CCXT_AVAILABLE,
-            "ta": TA_AVAILABLE,
-            "yfinance": YFINANCE_AVAILABLE
+        "telegram": {
+            "connected": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+            "chat_id": TELEGRAM_CHAT_ID
         }
     })
 
-@app.route('/webhook', methods=['POST'])
-def tradingview_webhook():
-    """دریافت سیگنال از تریدینگ‌ویو"""
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"status": "empty_data"}), 400
-        
-        symbol = data.get('symbol', 'Unknown')
-        side = data.get('side', 'N/A')
-        price = data.get('price', 0)
-        sl = data.get('sl', 0)
-        tp = data.get('tp', 0)
+@app.route('/test')
+def test_telegram():
+    """Test Telegram connection"""
+    test_msg = (
+        "🤖 *تست سیستم ترید*\n"
+        "━━━━━━━━━━━━━━━\n"
+        "✅ اتصال تلگرام موفق\n"
+        "🚀 سیستم: نسخه ۴.۰\n"
+        "📊 امکانات: تحلیل تکنیکال کامل\n"
+        "⏰ زمان: " + get_iran_time().strftime('%H:%M:%S') + "\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📈 آماده ارسال سیگنال!"
+    )
+    
+    success = send_telegram_message(test_msg)
+    
+    return jsonify({
+        "status": "success" if success else "error",
+        "message": "پیام تست ارسال شد" if success else "خطا در ارسال",
+        "timestamp": get_iran_time().isoformat()
+    })
 
-        emoji = "🟢" if side == "BUY" else "🔴"
-        
-        msg = (
-            f"🚀 *NEW SIGNAL FROM TRADINGVIEW* {emoji}\n"
-            f"📊 Symbol: {symbol}\n"
-            f"📶 Direction: {side}\n"
-            f"💵 Entry: {price}\n"
-            f"🎯 Target: {tp}\n"
-            f"🛑 Stop Loss: {sl}\n"
-            f"⏰ Time: {get_iran_time().strftime('%H:%M:%S')}"
-        )
-        
-        success = send_telegram_message(msg)
-        
-        if success:
-            return jsonify({
-                "status": "success",
-                "message": "سیگنال دریافت و ارسال شد",
-                "data": data
-            })
-        else:
-            return jsonify({
-                "status": "telegram_error",
-                "message": "خطا در ارسال به تلگرام"
-            }), 500
-            
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+# ==================== MAIN EXECUTION ====================
 
-# ۱۲. توابع زمان‌بندی
-def hourly_job():
-    """تحلیل ساعتی"""
-    now = get_iran_time()
-    
-    if SystemConfig.TRADING_HOURS[0] <= now.hour <= SystemConfig.TRADING_HOURS[1]:
-        print(f"⏰ شروع تحلیل ساعتی ساعت {now.hour}:{now.minute:02d}")
-        
-        for symbol in WATCHLIST:
-            analyze_and_broadcast(symbol, force=False)
-            time.sleep(2)
-    
-    else:
-        print(f"⏰ خارج از ساعت معاملاتی ({now.hour}:{now.minute:02d})")
-
-def multi_strategy_job():
-    """اسکنر استراتژی ترکیبی"""
-    print(f"🚀 شروع اسکنر استراتژی ترکیبی - {get_iran_time().strftime('%H:%M:%S')}")
-    
-    if not SystemConfig.USE_MULTI_STRATEGY:
-        print("ℹ️ استراتژی ترکیبی غیرفعال است")
-        return
-    
-    try:
-        # در این نسخه ساده شده، فقط واچ‌لیست را تحلیل می‌کنیم
-        for symbol in WATCHLIST:
-            try:
-                analyze_with_multi_strategy(symbol, '1h')
-                time.sleep(1)
-            except Exception as e:
-                print(f"⚠️ خطا در تحلیل {symbol}: {e}")
-                continue
-        
-        print(f"📈 اسکن کامل شد.")
-        
-    except Exception as e:
-        print(f"❌ خطا در اسکن: {e}")
-
-def run_scheduler():
-    """اجرای زمان‌بند"""
-    # اجرای هر ساعت در دقیقه ۰
-    schedule.every().hour.at(":00").do(hourly_job)
-    
-    # اجرای اسکنر استراتژی ترکیبی هر ۲ ساعت
-    schedule.every(SystemConfig.MULTI_STRATEGY_SCAN_INTERVAL).seconds.do(multi_strategy_job)
-    
-    print("⏰ زمان‌بند راه‌اندازی شد")
-    
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
-
-# ۱۳. نقطه شروع اجرای برنامه
 if __name__ == "__main__":
-    # بارگذاری تاریخچه
+    # Load history
     load_signal_history()
     
-    print(f"🚀 ربات ترید با موفقیت در پورت {port} راه‌اندازی شد")
-    print(f"⏰ زمان شروع سیستم (تهران): {SYSTEM_START_TIME.strftime('%H:%M:%S')}")
-    
-    print("\n" + "="*60)
-    print("🚀 Crypto Trading Bot v3.0")
-    print("="*60)
+    # Print startup banner
+    print("\n" + "="*70)
+    print("🚀 CRYPTO TRADING SYSTEM v4.0")
+    print("="*70)
     print(f"📅 تاریخ: {get_iran_time().strftime('%Y-%m-%d')}")
     print(f"⏰ ساعت: {get_iran_time().strftime('%H:%M:%S')}")
-    print(f"📊 واچ‌لیست: {', '.join(WATCHLIST)}")
-    print(f"⚙️ ساعت معاملاتی: {SystemConfig.TRADING_HOURS[0]}:00 - {SystemConfig.TRADING_HOURS[1]}:00")
-    print(f"📈 حداقل امتیاز سیگنال: {SystemConfig.MIN_SCORE}")
-    print("="*60)
+    print(f"🤖 تلگرام: {'✅ فعال' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else '❌ غیرفعال'}")
+    print(f"📊 واچ‌لیست: {len(WATCHLIST)} نماد")
+    print(f"⚙️ حداقل امتیاز: {SystemConfig.MIN_SCORE}")
+    print("="*70)
     
-    # ذخیره خودکار تاریخچه هنگام خروج
-    import atexit
-    atexit.register(save_signal_history)
+    # Send startup message
+    startup_msg = (
+        "🚀 *سیستم ترید راه‌اندازی شد*\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📅 تاریخ: {get_iran_time().strftime('%Y-%m-%d')}\n"
+        f"⏰ ساعت: {get_iran_time().strftime('%H:%M:%S')}\n"
+        f"📊 واچ‌لیست: {len(WATCHLIST)} نماد\n"
+        f"🤖 ربات: @CryptoAseman122_bot\n"
+        "━━━━━━━━━━━━━━━\n"
+        "✅ سیستم آماده ارسال سیگنال!"
+    )
+    send_telegram_message(startup_msg)
     
-    # راه‌اندازی زمان‌بند در یک thread جداگانه
+    # Start monitoring thread
+    monitor_thread = threading.Thread(target=monitor_active_signals, daemon=True)
+    monitor_thread.start()
+    
+    # Start scheduler thread
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    print(f"🌐 سرور در حال راه‌اندازی روی پورت {port}...")
-    print("="*60 + "\n")
+    # Register exit handler
+    import atexit
+    atexit.register(save_signal_history)
+    atexit.register(lambda: send_telegram_message("🔄 سیستم در حال خاموش شدن..."))
     
-    # اجرای سرور Flask
+    print(f"🌐 سرور در حال راه‌اندازی روی پورت {port}...")
+    print("="*70 + "\n")
+    
+    # Run Flask app
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
