@@ -10,5 +10,3 @@ python-dotenv
 yfinance
 ta
 matplotlib
-# نصب نسخه پایدار 0.3.14b از سورس مستقیم
-https://github.com/twopirllc/pandas-ta/archive/refs/pull/620/head.zip
