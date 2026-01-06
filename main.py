@@ -534,22 +534,25 @@ def check_targets():
         except Exception as e:
             print(f"❌ خطا در مانیتورینگ: {e}")
             time.sleep(30)
-
-# ۷. زمان‌بندی
-def hourly_job():
-    """اجرای تحلیل ساعتی"""
-    now = get_iran_time()
+            
+# ۷. زمان‌بندی (نسخه اصلاح شده)
+def run_scheduler():
+    import schedule  # وارد کردن کتابخانه برای اطمینان از رفع خطا
     
-    # فقط در ساعات معاملاتی
-    if SystemConfig.TRADING_HOURS[0] <= now.hour <= SystemConfig.TRADING_HOURS[1]:
-        print(f"⏰ شروع تحلیل ساعتی ساعت {now.hour}:{now.minute:02d}")
-        
-        for symbol in WATCHLIST:
-            analyze_and_broadcast(symbol, force=False)
-            time.sleep(2)  # تاخیر بین تحلیل نمادها
+    # دریافت فاصله زمانی از فایل config شما (۱۲۰ دقیقه)
+    interval = config.MULTI_STRATEGY_SCAN_INTERVAL_MINUTES
     
-    else:
-        print(f"⏰ خارج از ساعت معاملاتی ({now.hour}:{now.minute:02d}) - تحلیل انجام نمی‌شود")
+    # ۱. زمان‌بندی اجرای اسکنر استراتژی ترکیبی (هر ۱۲۰ دقیقه)
+    schedule.every(interval).minutes.do(multi_strategy_job)
+    
+    # ۲. زمان‌بندی تحلیل ساعتی واچ‌لیست (سر هر ساعت)
+    schedule.every().hour.at(":00").do(hourly_job)
+    
+    print(f"⏰ زمان‌بند فعال شد: اسکنر هر {interval} دقیقه | تحلیل ساعتی فعال")
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
 
 def multi_strategy_job():
     """اجرای اسکنر استراتژی ترکیبی"""
