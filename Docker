@@ -1,0 +1,9 @@
+# ۱. ساخت فایل .env
+echo "TELEGRAM_BOT_TOKEN=your_token" > .env
+echo "TELEGRAM_CHAT_ID=your_chat_id" >> .env
+
+# ۲. ساخت و اجرای کانتینر
+docker-compose up -d
+
+# ۳. مشاهده لاگ‌ها
+docker-compose logs -f
