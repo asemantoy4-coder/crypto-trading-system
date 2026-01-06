@@ -878,19 +878,19 @@ def tradingview_webhook():
             }), 500
             
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+            return jsonify({"status": "error", "message": str(e)}), 400
 
-# ۹. نقطه شروع اجرای برنامه (Entry Point)
+# ==================== STARTUP ====================
 if __name__ == "__main__":
-    # بارگذاری تاریخچه از فایل
+    # ۱. بارگذاری تاریخچه سیگنال‌ها
     load_signal_history()
     
-    # ۱. اجرای ترد مانیتورینگ قیمت‌ها (چک کردن TP/SL)
+    # ۲. راه‌اندازی ترد مانیتورینگ (چک کردن لحظه‌ای قیمت برای TP/SL)
     threading.Thread(target=check_targets, daemon=True).start()
     
-    # ۲. اجرای ترد زمان‌بندی (تحلیل‌های ساعتی و اسکنر)
+    # ۳. راه‌اندازی ترد زمان‌بندی (اجرای خودکار تحلیل‌ها و اسکنر)
     threading.Thread(target=run_scheduler, daemon=True).start()
     
-    # ۳. اجرای وب‌سرور Flask
-    print(f"🚀 Bot is running on port {port}...")
+    # ۴. اجرای وب‌سرور برای زنده نگه داشتن ربات در Render
+    print(f"🚀 Bot is starting on port {port}...")
     app.run(host='0.0.0.0', port=port)
